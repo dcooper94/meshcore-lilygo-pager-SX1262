@@ -4047,7 +4047,10 @@ void UITask::loop() {
     // invert the encoder delta while we're not on the horizontal carousel.
     int sign = s_in_subscreen ? -1 : 1;
     while (s_quad_accum >= 4) {
-      if (s_chat_open && s_chat_scroll) {
+      if (s_msg_picker) {
+        // Picker open: route to LVGL so the group moves focus between rows.
+        tpager_lvgl_encoder_delta(+1 * sign);
+      } else if (s_chat_open && s_chat_scroll) {
         // In chat view the encoder scrolls the history wrapper (the
         // spangroup grows inside it). Rotate up = scroll up.
         lv_obj_scroll_by(s_chat_scroll, 0, 28, LV_ANIM_OFF);
@@ -4057,7 +4060,9 @@ void UITask::loop() {
       s_quad_accum -= 4;
     }
     while (s_quad_accum <= -4) {
-      if (s_chat_open && s_chat_scroll) {
+      if (s_msg_picker) {
+        tpager_lvgl_encoder_delta(-1 * sign);
+      } else if (s_chat_open && s_chat_scroll) {
         lv_obj_scroll_by(s_chat_scroll, 0, -28, LV_ANIM_OFF); // rotate down = scroll down
       } else {
         tpager_lvgl_encoder_delta(-1 * sign);

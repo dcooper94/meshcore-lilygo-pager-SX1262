@@ -58,9 +58,20 @@
 6. **Merge** the PR on GitHub (squash or merge commit, your choice). GitHub will
    auto-close the linked issue.
 
-7. **Release** after merging one or more related PRs:
+7. **Release** — optional, can batch multiple merged PRs. Cut one when there
+   is at least one user-visible change worth shipping. Chore/doc-only PRs do
+   not need their own release; batch them with the next feature or fix.
+   Before releasing, run `clang-format --style=file -i` on any changed
+   `*.cpp`/`*.h` files in `variants/lilygo_tlora_pager_sx1262/` (excluding
+   `lv_conf.h`) so the format-check passes on the release commit.
    ```bash
    git checkout main && git pull personal main
+   pio run -e T_LoRa_Pager_SX1262_companion_radio_usb   # build release firmware
+   # package zip (see What lives where)
+   dd if=.pio/build/T_LoRa_Pager_SX1262_companion_radio_usb/firmware.bin \
+      of=/tmp/tpager-firmware/tpager-sx1262-vX.Y.Z.bin
+   cp /tmp/tpager-firmware/tpager-sx1262-vX.Y.Z.bin /tmp/tpager-firmware/firmware.bin
+   cd /tmp/tpager-firmware && zip -j /tmp/tpager-sx1262-firmware.zip *.bin && cd -
    git tag vX.Y.Z
    git push personal vX.Y.Z
    gh release create vX.Y.Z \
@@ -106,7 +117,8 @@ python -m esptool --chip esp32s3 --port /dev/ttyACM0 --baud 115200 \
 
 ## Code style
 
-- Follow the existing style in the file being edited (clang-format enforced on CI for the upstream files)
+- `variants/lilygo_tlora_pager_sx1262/` files are clang-format checked on every PR.
+  Run before pushing: `clang-format --style=file -i <changed files>` (skip `lv_conf.h`).
 - Variant files (`variants/lilygo_tlora_pager_sx1262/`) use 2-space indent
 - No comments explaining *what* code does — only *why* when non-obvious
 - No trailing summaries in commit messages

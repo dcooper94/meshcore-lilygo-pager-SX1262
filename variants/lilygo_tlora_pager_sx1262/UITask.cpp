@@ -141,6 +141,11 @@ static lv_obj_t *s_ch_menu_popup;
 static lv_group_t *s_ch_menu_group;
 static lv_obj_t *s_ch_menu_buttons[4];
 static int s_ch_menu_idx = -1;       // populated channel index
+
+// In-chat reply/path-info popup (shown on encoder short-press in chat).
+static lv_obj_t *s_reply_popup = nullptr;
+static lv_group_t *s_reply_group = nullptr;
+static lv_obj_t *s_reply_buttons[2]; // 0=Reply, 1=Cancel
 static uint64_t s_muted_channels = 0; // bitmask by channel_idx (runtime only)
 static lv_group_t *s_group;          // carousel tiles
 static lv_group_t *s_radio_group;    // Radio settings list rows
@@ -282,6 +287,7 @@ static void update_tile_badges() {
 #define CHAT_TEXT_MAX        176
 struct ChatMsg {
   uint8_t channel_idx;
+  uint8_t path_len;         // hop count (0 = direct, 0xFF = unknown/routed)
   uint32_t timestamp;       // unix seconds (0 if unknown)
   char text[CHAT_TEXT_MAX]; // includes "sender: " prefix from the wire
 };
@@ -316,6 +322,11 @@ static lv_obj_t *s_chat_counter = nullptr;
 // Tanmatsu UI.
 static char s_compose_buf[121] = { 0 };
 static int s_compose_len = 0;
+
+// Last received message — used by the reply popup.
+static char s_last_recv_from[40] = { 0 };
+static char s_last_recv_text[120] = { 0 };
+static uint8_t s_last_recv_path_len = 0xFF;
 static lv_group_t *s_edit_group; // edit popup widget
 static lv_obj_t *s_edit_popup;   // dark backdrop + content
 static lv_obj_t *s_edit_title;
@@ -388,7 +399,7 @@ static void chat_view_open(int channel_idx);
 static void chat_view_close();
 static void chat_history_render();
 static void chat_compose_render();
-static void chat_ring_push(uint8_t channel_idx, uint32_t timestamp, const char *text);
+static void chat_ring_push(uint8_t channel_idx, uint32_t timestamp, uint8_t path_len, const char *text);
 static void contacts_list_populate();
 static void discovered_list_populate();
 static void settings_list_populate();
@@ -403,6 +414,8 @@ static void con_menu_close();
 static void dm_list_populate();
 static void dm_chat_view_open(const uint8_t *pub_key, const char *peer_name);
 static void ch_menu_show(int populated_idx);
+static void reply_popup_show();
+static void reply_popup_hide();
 static void ch_menu_close();
 
 // High-contrast focused state for popup buttons (disc / con / ch menus).
@@ -638,7 +651,7 @@ extern "C" void ui_input_char(char c) {
             // "(me)" prefix so it visually matches received messages.
             char local[120];
             snprintf(local, sizeof(local), "(me): %s", s_compose_buf);
-            chat_ring_push((uint8_t)s_chat_channel_idx, 0, local);
+            chat_ring_push((uint8_t)s_chat_channel_idx, 0, 0xFF, local);
             chat_history_render();
           }
         }
@@ -744,6 +757,12 @@ static void leave_subscreen();
 static bool s_in_subscreen = false;
 static void nav_back_one_level() {
   if (s_back_handled) return;
+  // Dismiss reply popup before navigating away.
+  if (s_reply_popup && !lv_obj_has_flag(s_reply_popup, LV_OBJ_FLAG_HIDDEN)) {
+    reply_popup_hide();
+    s_back_handled = true;
+    return;
+  }
   if (s_chat_open) {
     chat_view_close(); // chat -> channel/DM list (stay in tile)
   } else if (s_in_subscreen) {
@@ -1228,6 +1247,102 @@ static void ch_menu_close() {
   }
 }
 
+static void reply_popup_hide() {
+  if (s_reply_popup) lv_obj_add_flag(s_reply_popup, LV_OBJ_FLAG_HIDDEN);
+  lv_indev_t *enc = tpager_lvgl_get_encoder();
+  if (enc && s_chat_group) lv_indev_set_group(enc, s_chat_group);
+}
+
+static void reply_popup_btn_cb(lv_event_t *e) {
+  int which = (int)(intptr_t)lv_event_get_user_data(e);
+  reply_popup_hide();
+  if (which == 0 && s_last_recv_from[0]) {
+    // Pre-fill compose with "> from: text\n"
+    char quote[121];
+    snprintf(quote, sizeof(quote), "> %s: %.80s\n", s_last_recv_from, s_last_recv_text);
+    size_t qlen = strlen(quote);
+    if (qlen > sizeof(s_compose_buf) - 1) qlen = sizeof(s_compose_buf) - 1;
+    memcpy(s_compose_buf, quote, qlen);
+    s_compose_buf[qlen] = 0;
+    s_compose_len = (int)qlen;
+    chat_compose_render();
+  }
+}
+
+static void reply_popup_show() {
+  if (!s_last_recv_from[0]) return; // nothing to reply to
+
+  // Build popup on first call.
+  if (!s_reply_popup) {
+    s_reply_popup = lv_obj_create(lv_layer_top());
+    lv_obj_set_size(s_reply_popup, 300, 180);
+    lv_obj_center(s_reply_popup);
+    lv_obj_set_style_bg_color(s_reply_popup, lv_color_hex(PAL->surface), 0);
+    lv_obj_set_style_border_color(s_reply_popup, lv_color_hex(PAL->border), 0);
+    lv_obj_set_style_border_width(s_reply_popup, 1, 0);
+    lv_obj_set_style_pad_all(s_reply_popup, 8, 0);
+    lv_obj_set_flex_flow(s_reply_popup, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(s_reply_popup, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(s_reply_popup, 6, 0);
+
+    s_reply_group = lv_group_create();
+
+    // Info label (sender + path)
+    lv_obj_t *info = lv_label_create(s_reply_popup);
+    lv_obj_set_width(info, LV_PCT(100));
+    lv_label_set_long_mode(info, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_color(info, lv_color_hex(PAL->text_dim), 0);
+
+    // Preview label (first 60 chars of message)
+    lv_obj_t *preview = lv_label_create(s_reply_popup);
+    lv_obj_set_width(preview, LV_PCT(100));
+    lv_label_set_long_mode(preview, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_color(preview, lv_color_hex(PAL->text), 0);
+
+    const char *btn_labels[2] = { "Reply", "Cancel" };
+    for (int i = 0; i < 2; i++) {
+      lv_obj_t *btn = lv_btn_create(s_reply_popup);
+      lv_obj_set_width(btn, LV_PCT(100));
+      lv_obj_set_height(btn, 36);
+      style_popup_button(btn);
+      lv_obj_t *lbl = lv_label_create(btn);
+      lv_label_set_text(lbl, btn_labels[i]);
+      lv_obj_center(lbl);
+      lv_obj_add_event_cb(btn, reply_popup_btn_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+      lv_group_add_obj(s_reply_group, btn);
+      s_reply_buttons[i] = btn;
+    }
+    lv_obj_add_flag(s_reply_popup, LV_OBJ_FLAG_HIDDEN);
+  }
+
+  // Update info + preview labels.
+  lv_obj_t *info    = lv_obj_get_child(s_reply_popup, 0);
+  lv_obj_t *preview = lv_obj_get_child(s_reply_popup, 1);
+  if (info) {
+    char hop_buf[32];
+    if (s_last_recv_path_len == 0xFF)      snprintf(hop_buf, sizeof(hop_buf), "path: unknown");
+    else if (s_last_recv_path_len == 0)    snprintf(hop_buf, sizeof(hop_buf), "path: direct");
+    else snprintf(hop_buf, sizeof(hop_buf), "path: %u hop%s", s_last_recv_path_len,
+                  s_last_recv_path_len == 1 ? "" : "s");
+    char ibuf[64];
+    snprintf(ibuf, sizeof(ibuf), "From: %s  |  %s", s_last_recv_from, hop_buf);
+    lv_label_set_text(info, ibuf);
+  }
+  if (preview) {
+    char pbuf[80];
+    snprintf(pbuf, sizeof(pbuf), "\"%.60s%s\"",
+             s_last_recv_text, strlen(s_last_recv_text) > 60 ? "..." : "");
+    lv_label_set_text(preview, pbuf);
+  }
+
+  lv_obj_remove_flag(s_reply_popup, LV_OBJ_FLAG_HIDDEN);
+  lv_indev_t *enc = tpager_lvgl_get_encoder();
+  if (enc && s_reply_group) {
+    lv_indev_set_group(enc, s_reply_group);
+    lv_group_set_editing(s_reply_group, false);
+  }
+}
+
 static void ch_menu_show(int populated_idx) {
   if (!s_ch_menu_popup) return;
   s_ch_menu_idx = populated_idx;
@@ -1565,7 +1680,28 @@ static void chat_history_render() {
       for (int n = 0; n < s_chat_count; n++) {
         int i = (start + n) % CHAT_RING_SIZE;
         if (s_chat_ring[i].channel_idx != (uint8_t)s_chat_channel_idx) continue;
-        chat_history_append_line(s_chat_ring[i].text);
+        // Annotate with hop count when known.
+        uint8_t pl = s_chat_ring[i].path_len;
+        if (pl != 0xFF) {
+          // Insert "(Nh) " between "sender: " and body.
+          char hop_tag[12];
+          if (pl == 0) snprintf(hop_tag, sizeof(hop_tag), "(dir) ");
+          else         snprintf(hop_tag, sizeof(hop_tag), "(%uh) ", pl);
+          const char *colon = strstr(s_chat_ring[i].text, ": ");
+          if (colon) {
+            char annotated[CHAT_TEXT_MAX + 12];
+            size_t pre = colon - s_chat_ring[i].text + 2;
+            memcpy(annotated, s_chat_ring[i].text, pre);
+            annotated[pre] = 0;
+            strncat(annotated, hop_tag, sizeof(annotated) - pre - 1);
+            strncat(annotated, colon + 2, sizeof(annotated) - strlen(annotated) - 1);
+            chat_history_append_line(annotated);
+          } else {
+            chat_history_append_line(s_chat_ring[i].text);
+          }
+        } else {
+          chat_history_append_line(s_chat_ring[i].text);
+        }
         rendered++;
       }
     }
@@ -1741,17 +1877,18 @@ static void chat_view_close() {
 // (the source of truth for rendering); Public/Test go to the session-only RAM
 // ring. The helper functions above (chan_hist_path / chan_log_append) do the
 // routing so add/delete slot compaction can never desync a channel's history.
-static void chat_ring_push(uint8_t channel_idx, uint32_t timestamp, const char *text) {
-  char path[32];
-  if (chan_hist_path(channel_idx, path, sizeof(path)) && sd_init()) {
-    chan_log_append(path, text); // persistent channel → SD log
-    return;                      // only skip RAM when SD actually worked
+static void chat_ring_push(uint8_t channel_idx, uint32_t timestamp, uint8_t path_len, const char *text) {
+  char sdpath[32];
+  if (chan_hist_path(channel_idx, sdpath, sizeof(sdpath)) && sd_init()) {
+    chan_log_append(sdpath, text); // persistent channel → SD log
+    return;                        // only skip RAM when SD actually worked
   }
   // Ephemeral channel (Public/Test) or SD unavailable → RAM ring.
   if (!ensure_chat_ring()) return;
   ChatMsg &slot = s_chat_ring[s_chat_head];
   slot.channel_idx = channel_idx;
-  slot.timestamp = timestamp;
+  slot.path_len    = path_len;
+  slot.timestamp   = timestamp;
   size_t n = strlen(text);
   if (n >= sizeof(slot.text)) n = sizeof(slot.text) - 1;
   memcpy(slot.text, text, n);
@@ -1760,12 +1897,20 @@ static void chat_ring_push(uint8_t channel_idx, uint32_t timestamp, const char *
   if (s_chat_count < CHAT_RING_SIZE) s_chat_count++;
 }
 
-// Called by MyMesh::onChannelMessageRecv. Single-threaded with the LVGL
-// rendering, so we can update the UI directly when the active chat
-// matches.
-extern "C" void ui_on_channel_message(int channel_idx, uint32_t timestamp, const char *text) {
+static void channel_msg_arrived(int channel_idx, uint32_t timestamp, uint8_t path_len, const char *text) {
   if (!text) return;
-  chat_ring_push((uint8_t)channel_idx, timestamp, text);
+  // Parse "sender: body" to track the last sender for reply.
+  const char *colon = strstr(text, ": ");
+  if (colon) {
+    size_t name_len = colon - text;
+    if (name_len < sizeof(s_last_recv_from)) {
+      memcpy(s_last_recv_from, text, name_len);
+      s_last_recv_from[name_len] = 0;
+      snprintf(s_last_recv_text, sizeof(s_last_recv_text), "%s", colon + 2);
+    }
+  }
+  s_last_recv_path_len = path_len;
+  chat_ring_push((uint8_t)channel_idx, timestamp, path_len, text);
   bool viewing = s_chat_open && !s_dm_mode && s_chat_channel_idx == channel_idx;
   if (viewing) {
     chat_history_render();
@@ -1773,6 +1918,17 @@ extern "C" void ui_on_channel_message(int channel_idx, uint32_t timestamp, const
     if (s_unread_ch[channel_idx] < 0xFFFF) s_unread_ch[channel_idx]++;
     update_tile_badges();
   }
+}
+
+// Called by MyMesh::onChannelMessageRecv via the extended hook (path_len known).
+extern "C" void ui_on_channel_message_path(int channel_idx, uint32_t timestamp, uint8_t path_len, const char *text) {
+  channel_msg_arrived(channel_idx, timestamp, path_len, text);
+}
+
+// Fallback hook (no path info) — kept for any callers that haven't been
+// updated to the extended signature.
+extern "C" void ui_on_channel_message(int channel_idx, uint32_t timestamp, const char *text) {
+  channel_msg_arrived(channel_idx, timestamp, 0xFF, text);
 }
 
 // ---------- Contacts tile (S3.5) --------------------------------------------
@@ -2119,6 +2275,12 @@ bool UITask::isChannelMuted(const char *channel_name) {
   int idx = channel_idx_by_name(channel_name);
   if (idx < 0 || idx >= 64) return false;
   return (s_muted_channels >> idx) & 1;
+}
+
+void UITask::trackLastMsg(const char *from, const char *text, uint8_t path_len) {
+  snprintf(s_last_recv_from, sizeof(s_last_recv_from), "%s", from ? from : "");
+  snprintf(s_last_recv_text, sizeof(s_last_recv_text), "%s", text ? text : "");
+  s_last_recv_path_len = path_len;
 }
 
 void UITask::showPreview(const char *from, const char *text) {
@@ -3858,6 +4020,9 @@ void UITask::loop() {
           // the LVGL long-press already handled this press (debounced inside).
           nav_back_one_level();
         }
+      } else if (s_chat_open && s_compose_len == 0 && s_last_recv_from[0]) {
+        // Short click in chat with empty compose → reply/path popup.
+        reply_popup_show();
       } else if (s_editing_idx == EDIT_IDX_SET_TIME) {
         // Short click in the Set-time editor commits (the wheel is raw, so
         // LVGL never sees this press as a widget click).

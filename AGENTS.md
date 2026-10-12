@@ -1,0 +1,106 @@
+# Development workflow for this repo
+
+## Branch strategy
+
+- `main` — stable, released code only. Never commit directly.
+- `feature/<short-slug>` — new features (e.g. `feature/reply-and-path-info`)
+- `fix/<short-slug>` — bug fixes (e.g. `fix/backlight-override`)
+- `chore/<short-slug>` — non-code changes: docs, deps, CI (e.g. `chore/update-readme`)
+
+## Making a change
+
+1. **Create a branch** from `main`:
+   ```bash
+   git checkout main && git pull personal main
+   git checkout -b feature/<slug>
+   ```
+2. **Make commits** on the branch. Commit messages:
+   - Imperative present tense: "Fix backlight override on keypress"
+   - One short subject line (≤ 72 chars)
+   - Optional body explaining *why*, not *what*
+   - Always end with:
+     ```
+     Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+     ```
+3. **Push** and open a PR against `main`:
+   ```bash
+   git push personal feature/<slug>
+   gh pr create --repo dcooper94/meshcore-lilygo-pager-SX1262 \
+     --base main --head feature/<slug> \
+     --title "..." --body "..."
+   ```
+   PR body must include:
+   - **What**: one-paragraph description of the change
+   - **Why**: motivation / user-facing impact
+   - **Test**: what was flashed and verified on hardware
+   - Attribution line: `🤖 Generated with [Claude Code](https://claude.com/claude-code)`
+
+4. **Merge** the PR on GitHub (squash or merge commit, your choice).
+
+5. **Release** after merging one or more related PRs:
+   ```bash
+   git checkout main && git pull personal main
+   git tag vX.Y.Z
+   git push personal vX.Y.Z
+   gh release create vX.Y.Z \
+     --repo dcooper94/meshcore-lilygo-pager-SX1262 \
+     --title "vX.Y.Z — <short description>" \
+     --notes "..." \
+     /tmp/tpager-sx1262-firmware.zip
+   ```
+
+## Versioning
+
+`vMAJOR.MINOR.PATCH` — increment:
+- MAJOR: breaking change to flash layout or NVS schema (requires full reflash)
+- MINOR: new user-visible feature
+- PATCH: bug fix, docs, or power/performance improvement
+
+Current version: **v1.0.0**
+
+## Build and flash
+
+```bash
+# Build
+pio run -e T_LoRa_Pager_SX1262_companion_radio_usb
+
+# Split for two-part flash (avoids esptool no-stub timeout)
+dd if=.pio/build/T_LoRa_Pager_SX1262_companion_radio_usb/firmware.bin \
+   of=/tmp/fw_part1.bin bs=1 count=524288
+dd if=.pio/build/T_LoRa_Pager_SX1262_companion_radio_usb/firmware.bin \
+   of=/tmp/fw_part2.bin bs=1 skip=524288
+
+# Flash part 1 (hold BOOT, tap RST, release BOOT first)
+python -m esptool --chip esp32s3 --port /dev/ttyACM0 --baud 115200 \
+  --no-stub --before default_reset --after no_reset \
+  write_flash --flash_mode dio --flash_freq 80m --flash_size 16MB \
+  0x10000 /tmp/fw_part1.bin
+
+# Flash part 2 (device stays in bootloader after part 1)
+python -m esptool --chip esp32s3 --port /dev/ttyACM0 --baud 115200 \
+  --no-stub --before default_reset --after hard_reset \
+  write_flash --flash_mode dio --flash_freq 80m --flash_size 16MB \
+  0x90000 /tmp/fw_part2.bin
+```
+
+## Code style
+
+- Follow the existing style in the file being edited (clang-format enforced on CI for the upstream files)
+- Variant files (`variants/lilygo_tlora_pager_sx1262/`) use 2-space indent
+- No comments explaining *what* code does — only *why* when non-obvious
+- No trailing summaries in commit messages
+
+## What lives where
+
+| Path | Purpose |
+|------|---------|
+| `variants/lilygo_tlora_pager_sx1262/` | All SX1262-specific code |
+| `examples/companion_radio/` | Shared MeshCore app (upstream — minimise changes) |
+| `/tmp/tpager-firmware/` | Staging dir for release zip |
+| `/tmp/tpager-sx1262-firmware.zip` | Distribution zip (update after every release build) |
+
+## Upstream sync
+
+This repo is a fork of [CJvanSoest/meshcore-lilygo-pager-LR1121](https://github.com/CJvanSoest/meshcore-lilygo-pager-LR1121).
+Upstream changes are merged periodically into `main` via `git fetch origin && git merge origin/main`.
+Avoid editing shared files outside `variants/lilygo_tlora_pager_sx1262/` unless absolutely necessary; prefer weak bridge functions so upstream merges stay clean.

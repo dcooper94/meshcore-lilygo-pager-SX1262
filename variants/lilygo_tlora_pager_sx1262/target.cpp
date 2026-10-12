@@ -1,10 +1,11 @@
 #include "target.h"
+
 #include "AudioManager.h"
 #include "PowerManager.h"
-#include <Preferences.h>
 
 #include <Adafruit_TCA8418.h>
 #include <Arduino.h>
+#include <Preferences.h>
 #include <SD.h>
 #include <Wire.h>
 

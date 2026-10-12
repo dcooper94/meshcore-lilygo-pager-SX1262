@@ -3,8 +3,8 @@
 // (placeholder content for now). Long-press goes back to the carousel.
 
 #include "UITask.h"
-#include "../../examples/companion_radio/MyMesh.h"  // the_mesh.getRecentlyHeard()
 
+#include "../../examples/companion_radio/MyMesh.h" // the_mesh.getRecentlyHeard()
 #include "TPagerLVGL.h"
 #include "TPagerST7796Display.h"
 #include "map_screen.h"
@@ -111,9 +111,9 @@ enum {
 static lv_obj_t *s_root;
 static lv_obj_t *s_header_label;
 static lv_obj_t *s_battery_label;
-static lv_obj_t *s_dc_label;            // duty-cycle % shown between name + battery
+static lv_obj_t *s_dc_label;             // duty-cycle % shown between name + battery
 static lv_obj_t *s_sound_icon = nullptr; // top-right sound status indicator
-static lv_obj_t *s_back_hint = nullptr; // bottom hint on every sub-screen (Map hides it)
+static lv_obj_t *s_back_hint = nullptr;  // bottom hint on every sub-screen (Map hides it)
 static lv_obj_t *s_tile_row;
 static lv_obj_t *s_tile_buttons[NUM_TILES];
 static lv_obj_t *s_tile_badges[NUM_TILES] = { 0 }; // unread-count badge per tile (item 7)
@@ -141,7 +141,7 @@ static uint8_t s_con_menu_pub_key[32]; // pub_key of clicked contact row
 static lv_obj_t *s_ch_menu_popup;
 static lv_group_t *s_ch_menu_group;
 static lv_obj_t *s_ch_menu_buttons[4];
-static int s_ch_menu_idx = -1;       // populated channel index
+static int s_ch_menu_idx = -1; // populated channel index
 
 // In-chat message picker (shown on encoder short-press in chat with empty compose).
 static lv_obj_t *s_msg_picker = nullptr;
@@ -150,15 +150,15 @@ static uint32_t s_picker_open_ms = 0; // guard: absorbs the press that opened th
 // Reply context bar — shown left of counter while a reply is staged.
 static lv_obj_t *s_reply_bar = nullptr;
 static char s_reply_quote[121] = { 0 }; // "> from: text\n" prepended on send
-static uint64_t s_muted_channels = 0; // bitmask by channel_idx (runtime only)
-static lv_group_t *s_group;          // carousel tiles
-static lv_group_t *s_radio_group;    // Radio settings list rows
-static lv_group_t *s_channel_group;  // Channels list rows
-static lv_group_t *s_chat_group;     // Deliberately EMPTY — bound while a chat
-                                     // (channel/DM) is open so a stray click
-                                     // lands on nothing (encoder scroll is
-                                     // handled manually in the loop, not here).
-static lv_group_t *s_contacts_group; // Contacts list rows
+static uint64_t s_muted_channels = 0;   // bitmask by channel_idx (runtime only)
+static lv_group_t *s_group;             // carousel tiles
+static lv_group_t *s_radio_group;       // Radio settings list rows
+static lv_group_t *s_channel_group;     // Channels list rows
+static lv_group_t *s_chat_group;        // Deliberately EMPTY — bound while a chat
+                                        // (channel/DM) is open so a stray click
+                                        // lands on nothing (encoder scroll is
+                                        // handled manually in the loop, not here).
+static lv_group_t *s_contacts_group;    // Contacts list rows
 static unsigned long s_contacts_next_refresh = 0;
 static lv_group_t *s_discovered_group; // Discovered list rows
 static unsigned long s_discovered_next_refresh = 0;
@@ -296,7 +296,11 @@ struct ChatMsg {
   char text[CHAT_TEXT_MAX]; // includes "sender: " prefix from the wire
 };
 #define CHAT_RING_SIZE 32
-struct PickerMsg { char from[40]; char text[80]; uint8_t path_len; };
+struct PickerMsg {
+  char from[40];
+  char text[80];
+  uint8_t path_len;
+};
 static PickerMsg s_picker_msgs[CHAT_RING_SIZE];
 static int s_picker_msg_count = 0;
 // Heap-allocated in PSRAM (S3.6d). 32 × ~104 bytes = ~3.3 KB; pushing
@@ -493,13 +497,13 @@ extern "C" int ui_get_dm_msg_count(const uint8_t *pub_key) __attribute__((weak))
 extern "C" bool ui_get_dm_msg(const uint8_t *pub_key, int idx, UiDmMsg *out) __attribute__((weak));
 extern "C" void ui_get_self_loc(double *lat, double *lon) __attribute__((weak));
 // GPS reception diagnostics for the Sat-test tile (target.cpp).
-extern "C" int ui_get_sat_count() __attribute__((weak));          // sats used in fix
+extern "C" int ui_get_sat_count() __attribute__((weak));           // sats used in fix
 extern "C" bool ui_get_gps_valid() __attribute__((weak));          // has a position fix
 extern "C" int ui_get_sat_in_view() __attribute__((weak));         // sats in view (GSV)
 extern "C" int ui_get_gps_best_snr() __attribute__((weak));        // best C/N0 dBHz
 extern "C" int32_t ui_get_gps_altitude_mm() __attribute__((weak)); // altitude mm, INT32_MIN = no fix
 extern "C" int ui_get_noise_floor() __attribute__((weak));
-extern "C" int ui_get_last_rssi()    __attribute__((weak));          // radio noise floor dBm
+extern "C" int ui_get_last_rssi() __attribute__((weak)); // radio noise floor dBm
 // Saved "home" location (item 8). Returns true if a home has been stored.
 extern "C" bool ui_get_home_loc(double *lat, double *lon) __attribute__((weak));
 // Restore a peer's DM history from SD into the ring (no-op if already loaded).
@@ -867,10 +871,10 @@ static void init_styles() {
 // good the sky is during a cold start.
 static void sattest_format(char *buf, int cap) {
   bool gpsOn = PowerManager::instance().isGpsEnabled();
-  bool fix   = ui_get_gps_valid && ui_get_gps_valid();
+  bool fix = ui_get_gps_valid && ui_get_gps_valid();
   int inview = ui_get_sat_in_view ? ui_get_sat_in_view() : -1;
-  int snr    = ui_get_gps_best_snr ? ui_get_gps_best_snr() : -1;
-  int infix  = ui_get_sat_count ? ui_get_sat_count() : -1;
+  int snr = ui_get_gps_best_snr ? ui_get_gps_best_snr() : -1;
+  int infix = ui_get_sat_count ? ui_get_sat_count() : -1;
   double lat = 0, lon = 0;
   if (ui_get_self_loc) ui_get_self_loc(&lat, &lon);
   int32_t alt_mm = ui_get_gps_altitude_mm ? ui_get_gps_altitude_mm() : INT32_MIN;
@@ -893,9 +897,7 @@ static void sattest_format(char *buf, int cap) {
            "Alt: %s\n\n"
            "Go outside with clear sky view.\n"
            "In view > 0 = antenna receiving.",
-           gpsOn ? "ON" : "OFF",
-           fix ? "YES" : "no",
-           inview, snr, infix, loc, alt);
+           gpsOn ? "ON" : "OFF", fix ? "YES" : "no", inview, snr, infix, loc, alt);
 }
 
 static void recent_format(char *buf, int cap) {
@@ -912,19 +914,23 @@ static void recent_format(char *buf, int cap) {
     char age[12];
     if (now > paths[i].recv_timestamp) {
       uint32_t secs = now - paths[i].recv_timestamp;
-      if (secs < 60)        snprintf(age, sizeof(age), "%us", secs);
-      else if (secs < 3600) snprintf(age, sizeof(age), "%um", secs/60);
-      else                  snprintf(age, sizeof(age), "%uh", secs/3600);
+      if (secs < 60)
+        snprintf(age, sizeof(age), "%us", secs);
+      else if (secs < 3600)
+        snprintf(age, sizeof(age), "%um", secs / 60);
+      else
+        snprintf(age, sizeof(age), "%uh", secs / 3600);
     } else {
       snprintf(age, sizeof(age), "?");
     }
     char hops[8];
-    if (paths[i].path_len == 0)   snprintf(hops, sizeof(hops), "direct");
-    else                          snprintf(hops, sizeof(hops), "%d hop", paths[i].path_len);
-    pos += snprintf(buf + pos, cap - pos, "%-20.20s  %s  %s\n",
-                    paths[i].name, age, hops);
+    if (paths[i].path_len == 0)
+      snprintf(hops, sizeof(hops), "direct");
+    else
+      snprintf(hops, sizeof(hops), "%d hop", paths[i].path_len);
+    pos += snprintf(buf + pos, cap - pos, "%-20.20s  %s  %s\n", paths[i].name, age, hops);
   }
-  if (pos > 0 && buf[pos-1] == '\n') buf[pos-1] = '\0';
+  if (pos > 0 && buf[pos - 1] == '\n') buf[pos - 1] = '\0';
 }
 
 static void enter_subscreen(int idx) {
@@ -1127,9 +1133,9 @@ static void radio_list_populate(NodePrefs *p, int focus_row) {
     "CR",
     "TX power", // dBm
     "RX boost",
-    "Path hash", // bytes (mode+1)
-    "Scope",     // default region-scope name (e.g. nl-utrecht)
-    "Name",      // node_name (UX round 2 — Heltec / others see this)
+    "Path hash",   // bytes (mode+1)
+    "Scope",       // default region-scope name (e.g. nl-utrecht)
+    "Name",        // node_name (UX round 2 — Heltec / others see this)
     "Noise floor", // dBm (read-only, live)
   };
   static const char *UNITS[] = { " MHz", "", " kHz", "", " dBm", "", "", "", "", " dBm" };
@@ -1255,8 +1261,7 @@ static int channel_idx_by_name(const char *name) {
   int n = ui_get_channel_count();
   char buf[40];
   for (int i = 0; i < n; i++)
-    if (ui_get_channel_name(i, buf, sizeof(buf)) && strcmp(buf, name) == 0)
-      return i;
+    if (ui_get_channel_name(i, buf, sizeof(buf)) && strcmp(buf, name) == 0) return i;
   return -1;
 }
 
@@ -1271,8 +1276,14 @@ static void ch_menu_close() {
 }
 
 static void msg_picker_hide() {
-  if (s_msg_picker) { lv_obj_del(s_msg_picker); s_msg_picker = nullptr; }
-  if (s_msg_picker_group) { lv_group_del(s_msg_picker_group); s_msg_picker_group = nullptr; }
+  if (s_msg_picker) {
+    lv_obj_del(s_msg_picker);
+    s_msg_picker = nullptr;
+  }
+  if (s_msg_picker_group) {
+    lv_group_del(s_msg_picker_group);
+    s_msg_picker_group = nullptr;
+  }
   lv_indev_t *enc = tpager_lvgl_get_encoder();
   if (enc && s_chat_group) lv_indev_set_group(enc, s_chat_group);
 }
@@ -1283,12 +1294,11 @@ static void msg_picker_select_cb(lv_event_t *e) {
   if (millis() - s_picker_open_ms < 200) return;
   int idx = (int)(intptr_t)lv_event_get_user_data(e);
   if (idx >= 0 && idx < s_picker_msg_count) {
-    snprintf(s_reply_quote, sizeof(s_reply_quote), "> %s: %.80s\n",
-             s_picker_msgs[idx].from, s_picker_msgs[idx].text);
+    snprintf(s_reply_quote, sizeof(s_reply_quote), "> %s: %.80s\n", s_picker_msgs[idx].from,
+             s_picker_msgs[idx].text);
     if (s_reply_bar) {
       char rbuf[80];
-      snprintf(rbuf, sizeof(rbuf), "↩ %s: %.40s",
-               s_picker_msgs[idx].from, s_picker_msgs[idx].text);
+      snprintf(rbuf, sizeof(rbuf), "↩ %s: %.40s", s_picker_msgs[idx].from, s_picker_msgs[idx].text);
       lv_label_set_text(s_reply_bar, rbuf);
       lv_obj_remove_flag(s_reply_bar, LV_OBJ_FLAG_HIDDEN);
     }
@@ -1299,7 +1309,9 @@ static void msg_picker_select_cb(lv_event_t *e) {
   msg_picker_hide();
 }
 
-static void msg_picker_cancel_cb(lv_event_t *e) { msg_picker_hide(); }
+static void msg_picker_cancel_cb(lv_event_t *e) {
+  msg_picker_hide();
+}
 
 static void msg_picker_show() {
   // Collect messages for the current channel from the ring, skip own messages.
@@ -1393,7 +1405,8 @@ static void msg_picker_show() {
     else if (pl == 0)
       snprintf(row, sizeof(row), "%s (dir): %.60s", s_picker_msgs[i].from, s_picker_msgs[i].text);
     else
-      snprintf(row, sizeof(row), "%s (%uh): %.60s", s_picker_msgs[i].from, (unsigned)pl, s_picker_msgs[i].text);
+      snprintf(row, sizeof(row), "%s (%uh): %.60s", s_picker_msgs[i].from, (unsigned)pl,
+               s_picker_msgs[i].text);
 
     lv_obj_t *lbl = lv_label_create(btn);
     lv_label_set_text(lbl, row);
@@ -1775,8 +1788,10 @@ static void chat_history_render() {
         if (pl != 0xFF) {
           // Insert "(Nh) " between "sender: " and body.
           char hop_tag[12];
-          if (pl == 0) snprintf(hop_tag, sizeof(hop_tag), "(dir) ");
-          else         snprintf(hop_tag, sizeof(hop_tag), "(%uh) ", pl);
+          if (pl == 0)
+            snprintf(hop_tag, sizeof(hop_tag), "(dir) ");
+          else
+            snprintf(hop_tag, sizeof(hop_tag), "(%uh) ", pl);
           const char *colon = strstr(s_chat_ring[i].text, ": ");
           if (colon) {
             char annotated[CHAT_TEXT_MAX + 12];
@@ -1983,8 +1998,8 @@ static void chat_ring_push(uint8_t channel_idx, uint32_t timestamp, uint8_t path
   if (!ensure_chat_ring()) return;
   ChatMsg &slot = s_chat_ring[s_chat_head];
   slot.channel_idx = channel_idx;
-  slot.path_len    = path_len;
-  slot.timestamp   = timestamp;
+  slot.path_len = path_len;
+  slot.timestamp = timestamp;
   size_t n = strlen(text);
   if (n >= sizeof(slot.text)) n = sizeof(slot.text) - 1;
   memcpy(slot.text, text, n);
@@ -2017,7 +2032,8 @@ static void channel_msg_arrived(int channel_idx, uint32_t timestamp, uint8_t pat
 }
 
 // Called by MyMesh::onChannelMessageRecv via the extended hook (path_len known).
-extern "C" void ui_on_channel_message_path(int channel_idx, uint32_t timestamp, uint8_t path_len, const char *text) {
+extern "C" void ui_on_channel_message_path(int channel_idx, uint32_t timestamp, uint8_t path_len,
+                                           const char *text) {
   channel_msg_arrived(channel_idx, timestamp, path_len, text);
 }
 
@@ -2383,9 +2399,7 @@ void UITask::showPreview(const char *from, const char *text) {
   if (!s_toast_popup || !s_toast_label) return;
   char buf[80];
   // Show sender + first ~50 chars of message.
-  snprintf(buf, sizeof(buf), "Msg from: %s\n%.50s%s",
-           from ? from : "?",
-           text ? text : "",
+  snprintf(buf, sizeof(buf), "Msg from: %s\n%.50s%s", from ? from : "?", text ? text : "",
            (text && strlen(text) > 50) ? "..." : "");
   lv_label_set_text(s_toast_label, buf);
   lv_obj_remove_flag(s_toast_popup, LV_OBJ_FLAG_HIDDEN);
@@ -2924,14 +2938,14 @@ static void back_long_press_event(lv_event_t * /*e*/) {
 // in this firmware, so they are intentionally omitted for now.
 enum {
   SET_SAVE_HOME = 0,
-  SET_GPS_TOGGLE,  // click = enable / disable GPS (+ duty cycle)
-  SET_GPS_INFO,    // live GPS fix/sat readout — informational, click no-ops
-  SET_HOME_INFO,   // click = clear home
-  SET_BLUETOOTH,   // click = toggle BLE on/off
-  SET_SCREEN_OFF,  // click = cycle timeout
-  SET_APPEARANCE,  // click = toggle dark / light theme
-  SET_BRIGHTNESS,  // click = cycle backlight Low/Med/Max
-  SET_TIME,        // display (NL local, DST-aware) — click refreshes
+  SET_GPS_TOGGLE, // click = enable / disable GPS (+ duty cycle)
+  SET_GPS_INFO,   // live GPS fix/sat readout — informational, click no-ops
+  SET_HOME_INFO,  // click = clear home
+  SET_BLUETOOTH,  // click = toggle BLE on/off
+  SET_SCREEN_OFF, // click = cycle timeout
+  SET_APPEARANCE, // click = toggle dark / light theme
+  SET_BRIGHTNESS, // click = cycle backlight Low/Med/Max
+  SET_TIME,       // display (NL local, DST-aware) — click refreshes
 };
 static void save_ui_prefs();                   // persist theme + brightness + sound (defined below)
 static void sound_icon_update();               // update top-bar sound icon (defined below)
@@ -3814,7 +3828,7 @@ static void build_ui() {
   s_ch_menu_group = lv_group_create();
   static const char *ch_btn_labels[4] = {
     "Open chat",
-    "Mute channel",   // relabeled to "Unmute channel" when already muted
+    "Mute channel", // relabeled to "Unmute channel" when already muted
     "Delete channel",
     "Cancel",
   };
@@ -3847,7 +3861,7 @@ static void build_ui() {
             return;
           }
           if (which == 2 && idx != 0 && ui_delete_channel) { // Delete channel (not Public)
-            chan_hist_remove(idx);               // drop its SD log first (idx→name still valid)
+            chan_hist_remove(idx);                           // drop its SD log first (idx→name still valid)
             ui_delete_channel(idx);
           }
           ch_menu_close();
@@ -3962,8 +3976,7 @@ static void sound_icon_update() {
   if (!s_sound_icon) return;
   bool en = AudioManager::instance().isEnabled();
   lv_label_set_text(s_sound_icon, en ? LV_SYMBOL_VOLUME_MID : LV_SYMBOL_MUTE);
-  lv_obj_set_style_text_color(s_sound_icon,
-    en ? lv_color_hex(PAL->text_dim) : lv_color_hex(PAL->accent), 0);
+  lv_obj_set_style_text_color(s_sound_icon, en ? lv_color_hex(PAL->text_dim) : lv_color_hex(PAL->accent), 0);
 }
 
 static void load_ui_prefs() {
@@ -4343,7 +4356,7 @@ void UITask::loop() {
       char buf[48];
       // Left part: last RSSI / noise floor
       int rssi = ui_get_last_rssi ? ui_get_last_rssi() : 0;
-      int nf   = ui_get_noise_floor ? ui_get_noise_floor() : 0;
+      int nf = ui_get_noise_floor ? ui_get_noise_floor() : 0;
       char radio_part[20];
       snprintf(radio_part, sizeof(radio_part), "%ddBm/%ddBm", rssi, nf);
       // Right part: GPS state

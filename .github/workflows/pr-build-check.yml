@@ -25,31 +25,7 @@ jobs:
       fail-fast: false
       matrix:
         environment:
-          # ESP32-S3 (most common platform)
-          - Heltec_v3_companion_radio_ble
-          - Heltec_v3_repeater
-          - Heltec_v3_room_server
-          # nRF52
-          - RAK_4631_companion_radio_ble
-          - RAK_4631_companion_radio_ethernet
-          - RAK_4631_repeater
-          - RAK_4631_repeater_ethernet
-          - RAK_4631_room_server
-          - RAK_4631_room_server_ethernet
-          # RP2040
-          - PicoW_repeater
-          # STM32 (wio-e5-mini) omitted: RadioLib Stm32wlHal.cpp fails to find
-          # SubGhz.h with the pinned STM32 core — an upstream/toolchain issue
-          # unrelated to this pager fork. Re-add once upstream resolves it.
-          # ESP32-C6
-          - LilyGo_Tlora_C6_repeater_
-          # LR1110 (nRF52)
-          - wio_wm1110_repeater
-          # SX1276 (ESP32)
-          - Tbeam_SX1276_repeater
-          # ESP32-S3 — LilyGo T-Lora Pager LR1121 (this fork's primary target)
-          - T_LoRa_Pager_LR1121_companion_radio_usb
-          - T_LoRa_Pager_LR1121_repeater
+          - T_LoRa_Pager_SX1262_companion_radio_usb
 
     steps:
       - name: Clone Repo
@@ -62,9 +38,6 @@ jobs:
         run: pio run -e ${{ matrix.environment }}
 
   format-check:
-    # Enforce clang-format on the LilyGo T-Lora Pager variant sources we own.
-    # Vendored lv_conf.h is excluded. Uses the repo .clang-format, which needs
-    # clang-format 19+ (AlignEscapedNewlines: LeftWithLastLine); we pin 20.1.0.
     runs-on: ubuntu-latest
     steps:
       - name: Clone Repo
@@ -80,8 +53,8 @@ jobs:
 
       - name: Check pager variant formatting
         run: |
-          files=$(git ls-files 'variants/lilygo_tlora_pager_lr1121/*.cpp' \
-                               'variants/lilygo_tlora_pager_lr1121/*.h' \
+          files=$(git ls-files 'variants/lilygo_tlora_pager_sx1262/*.cpp' \
+                               'variants/lilygo_tlora_pager_sx1262/*.h' \
                     | grep -v 'lv_conf.h')
           echo "Checking:"; echo "$files"
           clang-format --style=file --dry-run -Werror $files

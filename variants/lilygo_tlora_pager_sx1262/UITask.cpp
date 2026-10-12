@@ -1368,7 +1368,18 @@ static void msg_picker_show() {
     lv_obj_set_size(btn, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_style_min_height(btn, 26, 0);
     lv_obj_set_style_pad_all(btn, 4, 0);
-    style_popup_button(btn); // normal=surface bg, focused=orange bg
+    // Normal state
+    lv_obj_set_style_bg_color(btn, lv_color_hex(PAL->surface), 0);
+    lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(btn, 0, 0);
+    lv_obj_set_style_text_color(btn, lv_color_hex(PAL->text), 0);
+    // Focused state: orange outline box so the selection is unambiguous
+    lv_obj_set_style_outline_color(btn, lv_color_hex(PAL->accent), LV_STATE_FOCUSED);
+    lv_obj_set_style_outline_width(btn, 2, LV_STATE_FOCUSED);
+    lv_obj_set_style_outline_opa(btn, LV_OPA_COVER, LV_STATE_FOCUSED);
+    lv_obj_set_style_bg_color(btn, lv_color_hex(PAL->accent), LV_STATE_FOCUSED);
+    lv_obj_set_style_bg_opa(btn, LV_OPA_20, LV_STATE_FOCUSED);
+    lv_obj_set_style_text_color(btn, lv_color_hex(PAL->accent), LV_STATE_FOCUSED);
 
     char row[120];
     uint8_t pl = s_picker_msgs[i].path_len;
@@ -1400,17 +1411,17 @@ static void msg_picker_show() {
   lv_obj_add_event_cb(cancel, msg_picker_cancel_cb, LV_EVENT_CLICKED, nullptr);
   lv_group_add_obj(s_msg_picker_group, cancel);
 
+  // Connect encoder to group first, then set focus so the focused state renders.
+  lv_indev_t *enc = tpager_lvgl_get_encoder();
+  if (enc && s_msg_picker_group) {
+    lv_indev_set_group(enc, s_msg_picker_group);
+    lv_group_set_editing(s_msg_picker_group, false);
+  }
   // Start focus on the most recent message (last item in scroll area).
   lv_obj_t *newest = lv_obj_get_child(scroll, s_picker_msg_count - 1);
   if (newest) {
     lv_group_focus_obj(newest);
     lv_obj_scroll_to_view(newest, LV_ANIM_OFF);
-  }
-
-  lv_indev_t *enc = tpager_lvgl_get_encoder();
-  if (enc && s_msg_picker_group) {
-    lv_indev_set_group(enc, s_msg_picker_group);
-    lv_group_set_editing(s_msg_picker_group, false);
   }
 }
 

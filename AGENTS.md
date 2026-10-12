@@ -9,12 +9,22 @@
 
 ## Making a change
 
-1. **Create a branch** from `main`:
+1. **Open an issue** before starting work:
+   ```bash
+   gh issue create --repo dcooper94/meshcore-lilygo-pager-SX1262 \
+     --title "..." \
+     --label "bug"        # or "enhancement" for features
+     --body "..."
+   ```
+   One issue per branch. Note the issue number — you'll need it for the PR.
+
+2. **Create a branch** from `main`, named after the issue:
    ```bash
    git checkout main && git pull personal main
-   git checkout -b feature/<slug>
+   git checkout -b feature/<slug>   # or fix/<slug>
    ```
-2. **Make commits** on the branch. Commit messages:
+
+3. **Make commits** on the branch. Commit messages:
    - Imperative present tense: "Fix backlight override on keypress"
    - One short subject line (≤ 72 chars)
    - Optional body explaining *why*, not *what*
@@ -22,7 +32,7 @@
      ```
      Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
      ```
-3. **Push** and open a PR against `main`:
+4. **Push** and open a PR against `main`:
    ```bash
    git push personal feature/<slug>
    gh pr create --repo dcooper94/meshcore-lilygo-pager-SX1262 \
@@ -33,11 +43,22 @@
    - **What**: one-paragraph description of the change
    - **Why**: motivation / user-facing impact
    - **Test**: what was flashed and verified on hardware
+   - A `Closes #<issue-number>` line so GitHub auto-closes the issue on merge
    - Attribution line: `🤖 Generated with [Claude Code](https://claude.com/claude-code)`
 
-4. **Merge** the PR on GitHub (squash or merge commit, your choice).
+5. **Update the PR description** whenever new commits are pushed to the branch:
+   ```bash
+   gh pr edit <number> --repo dcooper94/meshcore-lilygo-pager-SX1262 \
+     --body "..."
+   ```
+   The **Test** section must reflect what was actually flashed and verified, not
+   the original test plan. Add an **Updates** section listing what changed since
+   the PR was opened if the scope shifted materially.
 
-5. **Release** after merging one or more related PRs:
+6. **Merge** the PR on GitHub (squash or merge commit, your choice). GitHub will
+   auto-close the linked issue.
+
+7. **Release** after merging one or more related PRs:
    ```bash
    git checkout main && git pull personal main
    git tag vX.Y.Z

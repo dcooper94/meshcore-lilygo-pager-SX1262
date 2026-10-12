@@ -12,6 +12,12 @@ extern "C" void ui_on_channel_message(int channel_idx, uint32_t timestamp,
                                       const char* text)
     __attribute__((weak));
 
+// Extended hook that also carries path_len. Variants that want hop-count
+// info define a strong version; others fall back to the base hook above.
+extern "C" void ui_on_channel_message_path(int channel_idx, uint32_t timestamp,
+                                           uint8_t path_len, const char* text)
+    __attribute__((weak));
+
 // Variant-UI hook for DM receive (S3.6d). Fires from MyMesh::onMessageRecv
 // AFTER queueMessage so the existing companion-app protocol still gets
 // served. pub_key is the full 32-byte sender id.
@@ -609,7 +615,9 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
   // Variant-UI hook (see file-scope decl above). Strong def in UITask.cpp
   // is `extern "C"`; without matching the linkage here the C++-mangled
   // weak decl never resolved to it and the hook stayed silently dead.
-  if (ui_on_channel_message) {
+  if (ui_on_channel_message_path) {
+    ui_on_channel_message_path(channel_idx, timestamp, path_len, text);
+  } else if (ui_on_channel_message) {
     ui_on_channel_message(channel_idx, timestamp, text);
   }
 #endif

@@ -141,6 +141,14 @@ static lv_obj_t *s_ch_menu_popup;
 static lv_group_t *s_ch_menu_group;
 static lv_obj_t *s_ch_menu_buttons[4];
 static int s_ch_menu_idx = -1;       // populated channel index
+
+// In-chat message picker (shown on encoder short-press in chat with empty compose).
+static lv_obj_t *s_msg_picker = nullptr;
+static lv_group_t *s_msg_picker_group = nullptr;
+static uint32_t s_picker_open_ms = 0; // guard: absorbs the press that opened the picker
+// Reply context bar — shown left of counter while a reply is staged.
+static lv_obj_t *s_reply_bar = nullptr;
+static char s_reply_quote[121] = { 0 }; // "> from: text\n" prepended on send
 static uint64_t s_muted_channels = 0; // bitmask by channel_idx (runtime only)
 static lv_group_t *s_group;          // carousel tiles
 static lv_group_t *s_radio_group;    // Radio settings list rows
@@ -282,10 +290,14 @@ static void update_tile_badges() {
 #define CHAT_TEXT_MAX        176
 struct ChatMsg {
   uint8_t channel_idx;
+  uint8_t path_len;         // hop count (0 = direct, 0xFF = unknown/routed)
   uint32_t timestamp;       // unix seconds (0 if unknown)
   char text[CHAT_TEXT_MAX]; // includes "sender: " prefix from the wire
 };
 #define CHAT_RING_SIZE 32
+struct PickerMsg { char from[40]; char text[80]; uint8_t path_len; };
+static PickerMsg s_picker_msgs[CHAT_RING_SIZE];
+static int s_picker_msg_count = 0;
 // Heap-allocated in PSRAM (S3.6d). 32 × ~104 bytes = ~3.3 KB; pushing
 // this to DRAM with the DM ring buffer + click caches added in this
 // sprint overflowed the segment by ~80 bytes. The chat-view code
@@ -316,6 +328,11 @@ static lv_obj_t *s_chat_counter = nullptr;
 // Tanmatsu UI.
 static char s_compose_buf[121] = { 0 };
 static int s_compose_len = 0;
+
+// Last received message — used by the reply popup.
+static char s_last_recv_from[40] = { 0 };
+static char s_last_recv_text[120] = { 0 };
+static uint8_t s_last_recv_path_len = 0xFF;
 static lv_group_t *s_edit_group; // edit popup widget
 static lv_obj_t *s_edit_popup;   // dark backdrop + content
 static lv_obj_t *s_edit_title;
@@ -388,7 +405,7 @@ static void chat_view_open(int channel_idx);
 static void chat_view_close();
 static void chat_history_render();
 static void chat_compose_render();
-static void chat_ring_push(uint8_t channel_idx, uint32_t timestamp, const char *text);
+static void chat_ring_push(uint8_t channel_idx, uint32_t timestamp, uint8_t path_len, const char *text);
 static void contacts_list_populate();
 static void discovered_list_populate();
 static void settings_list_populate();
@@ -403,6 +420,8 @@ static void con_menu_close();
 static void dm_list_populate();
 static void dm_chat_view_open(const uint8_t *pub_key, const char *peer_name);
 static void ch_menu_show(int populated_idx);
+static void msg_picker_show();
+static void msg_picker_hide();
 static void ch_menu_close();
 
 // High-contrast focused state for popup buttons (disc / con / ch menus).
@@ -627,22 +646,34 @@ extern "C" void ui_input_char(char c) {
     if (c == '\n') {
       if (s_compose_len > 0) {
         bool ok = false;
+        // Build message: prepend reply quote if one is staged.
+        char full_msg[242];
+        const char *send_text;
+        if (s_reply_quote[0]) {
+          snprintf(full_msg, sizeof(full_msg), "%s%s", s_reply_quote, s_compose_buf);
+          send_text = full_msg;
+        } else {
+          send_text = s_compose_buf;
+        }
         if (s_dm_mode) {
-          if (ui_send_dm) ok = ui_send_dm(s_dm_pubkey, s_compose_buf);
+          if (ui_send_dm) ok = ui_send_dm(s_dm_pubkey, send_text);
           if (ok) chat_history_render(); // DM ring already has our own copy
         } else if (ui_send_group_text) {
-          ok = ui_send_group_text(s_chat_channel_idx, s_compose_buf);
+          ok = ui_send_group_text(s_chat_channel_idx, send_text);
           if (ok) {
-            // Show our own message in the history immediately. The wire
-            // payload is "<sender>: <msg>" — mirror that locally with a
-            // "(me)" prefix so it visually matches received messages.
+            // Show our own message in the history immediately.
             char local[120];
-            snprintf(local, sizeof(local), "(me): %s", s_compose_buf);
-            chat_ring_push((uint8_t)s_chat_channel_idx, 0, local);
+            snprintf(local, sizeof(local), "(me): %s", send_text);
+            chat_ring_push((uint8_t)s_chat_channel_idx, 0, 0xFF, local);
             chat_history_render();
           }
         }
         (void)ok;
+        // Always clear reply state after send attempt.
+        if (s_reply_quote[0]) {
+          s_reply_quote[0] = 0;
+          if (s_reply_bar) lv_obj_add_flag(s_reply_bar, LV_OBJ_FLAG_HIDDEN);
+        }
       }
       s_compose_buf[0] = 0;
       s_compose_len = 0;
@@ -650,6 +681,10 @@ extern "C" void ui_input_char(char c) {
       if (s_compose_len > 0) {
         s_compose_len--;
         s_compose_buf[s_compose_len] = 0;
+      } else if (s_reply_quote[0]) {
+        // Backspace on empty compose cancels the reply.
+        s_reply_quote[0] = 0;
+        if (s_reply_bar) lv_obj_add_flag(s_reply_bar, LV_OBJ_FLAG_HIDDEN);
       }
     } else {
       if (s_compose_len < (int)sizeof(s_compose_buf) - 1) {
@@ -744,6 +779,12 @@ static void leave_subscreen();
 static bool s_in_subscreen = false;
 static void nav_back_one_level() {
   if (s_back_handled) return;
+  // Dismiss message picker before navigating away.
+  if (s_msg_picker) {
+    msg_picker_hide();
+    s_back_handled = true;
+    return;
+  }
   if (s_chat_open) {
     chat_view_close(); // chat -> channel/DM list (stay in tile)
   } else if (s_in_subscreen) {
@@ -1228,6 +1269,169 @@ static void ch_menu_close() {
   }
 }
 
+static void msg_picker_hide() {
+  if (s_msg_picker) { lv_obj_del(s_msg_picker); s_msg_picker = nullptr; }
+  if (s_msg_picker_group) { lv_group_del(s_msg_picker_group); s_msg_picker_group = nullptr; }
+  lv_indev_t *enc = tpager_lvgl_get_encoder();
+  if (enc && s_chat_group) lv_indev_set_group(enc, s_chat_group);
+}
+
+static void msg_picker_select_cb(lv_event_t *e) {
+  // The same encoder press that opened the picker will be seen by LVGL as a
+  // click on the focused button during the same loop tick. Guard against it.
+  if (millis() - s_picker_open_ms < 200) return;
+  int idx = (int)(intptr_t)lv_event_get_user_data(e);
+  if (idx >= 0 && idx < s_picker_msg_count) {
+    snprintf(s_reply_quote, sizeof(s_reply_quote), "> %s: %.80s\n",
+             s_picker_msgs[idx].from, s_picker_msgs[idx].text);
+    if (s_reply_bar) {
+      char rbuf[80];
+      snprintf(rbuf, sizeof(rbuf), "↩ %s: %.40s",
+               s_picker_msgs[idx].from, s_picker_msgs[idx].text);
+      lv_label_set_text(s_reply_bar, rbuf);
+      lv_obj_remove_flag(s_reply_bar, LV_OBJ_FLAG_HIDDEN);
+    }
+    s_compose_buf[0] = 0;
+    s_compose_len = 0;
+    chat_compose_render();
+  }
+  msg_picker_hide();
+}
+
+static void msg_picker_cancel_cb(lv_event_t *e) { msg_picker_hide(); }
+
+static void msg_picker_show() {
+  // Collect messages for the current channel from the ring, skip own messages.
+  s_picker_msg_count = 0;
+  if (!s_dm_mode && s_chat_ring && s_chat_count > 0) {
+    int start = (s_chat_head - s_chat_count + CHAT_RING_SIZE) % CHAT_RING_SIZE;
+    for (int n = 0; n < s_chat_count; n++) {
+      int i = (start + n) % CHAT_RING_SIZE;
+      if (s_chat_ring[i].channel_idx != (uint8_t)s_chat_channel_idx) continue;
+      if (strncmp(s_chat_ring[i].text, "(me): ", 6) == 0) continue;
+      const char *colon = strstr(s_chat_ring[i].text, ": ");
+      if (!colon) continue;
+      if (s_picker_msg_count >= CHAT_RING_SIZE) break;
+      int fi = s_picker_msg_count++;
+      size_t flen = (size_t)(colon - s_chat_ring[i].text);
+      if (flen >= sizeof(s_picker_msgs[fi].from)) flen = sizeof(s_picker_msgs[fi].from) - 1;
+      memcpy(s_picker_msgs[fi].from, s_chat_ring[i].text, flen);
+      s_picker_msgs[fi].from[flen] = 0;
+      strncpy(s_picker_msgs[fi].text, colon + 2, sizeof(s_picker_msgs[fi].text) - 1);
+      s_picker_msgs[fi].text[sizeof(s_picker_msgs[fi].text) - 1] = 0;
+      s_picker_msgs[fi].path_len = s_chat_ring[i].path_len;
+    }
+  }
+  // Fall back to last received if ring has no entries for this channel.
+  if (s_picker_msg_count == 0) {
+    if (!s_last_recv_from[0]) return;
+    strncpy(s_picker_msgs[0].from, s_last_recv_from, sizeof(s_picker_msgs[0].from) - 1);
+    strncpy(s_picker_msgs[0].text, s_last_recv_text, sizeof(s_picker_msgs[0].text) - 1);
+    s_picker_msgs[0].path_len = s_last_recv_path_len;
+    s_picker_msg_count = 1;
+  }
+
+  // Build picker overlay (recreated fresh each time so messages are current).
+  s_msg_picker = lv_obj_create(lv_layer_top());
+  lv_obj_set_size(s_msg_picker, 460, 210);
+  lv_obj_align(s_msg_picker, LV_ALIGN_CENTER, 0, 0);
+  lv_obj_set_style_bg_color(s_msg_picker, lv_color_hex(PAL->bg), 0);
+  lv_obj_set_style_border_color(s_msg_picker, lv_color_hex(PAL->accent), 0);
+  lv_obj_set_style_border_width(s_msg_picker, 2, 0);
+  lv_obj_set_style_pad_all(s_msg_picker, 4, 0);
+  lv_obj_set_flex_flow(s_msg_picker, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(s_msg_picker, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_row(s_msg_picker, 2, 0);
+  lv_obj_set_style_radius(s_msg_picker, 6, 0);
+
+  // Header
+  lv_obj_t *hdr = lv_label_create(s_msg_picker);
+  lv_label_set_text(hdr, "↩  Select message to reply to");
+  lv_obj_set_style_text_color(hdr, lv_color_hex(PAL->accent), 0);
+  lv_obj_set_style_text_font(hdr, &lv_font_montserrat_14, 0);
+  lv_obj_set_width(hdr, LV_PCT(100));
+
+  // Scrollable message list
+  lv_obj_t *scroll = lv_obj_create(s_msg_picker);
+  lv_obj_remove_style_all(scroll);
+  lv_obj_set_size(scroll, LV_PCT(100), 138);
+  lv_obj_set_style_bg_color(scroll, lv_color_hex(PAL->bg), 0);
+  lv_obj_set_style_bg_opa(scroll, LV_OPA_COVER, 0);
+  lv_obj_add_flag(scroll, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(scroll, LV_DIR_VER);
+  lv_obj_set_scroll_snap_y(scroll, LV_SCROLL_SNAP_NONE);
+  lv_obj_set_flex_flow(scroll, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(scroll, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_row(scroll, 2, 0);
+  lv_obj_set_style_pad_all(scroll, 2, 0);
+
+  s_msg_picker_group = lv_group_create();
+
+  for (int i = 0; i < s_picker_msg_count; i++) {
+    lv_obj_t *btn = lv_btn_create(scroll);
+    lv_obj_set_size(btn, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_style_min_height(btn, 26, 0);
+    lv_obj_set_style_pad_all(btn, 4, 0);
+    // Normal state
+    lv_obj_set_style_bg_color(btn, lv_color_hex(PAL->surface), 0);
+    lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(btn, 0, 0);
+    lv_obj_set_style_text_color(btn, lv_color_hex(PAL->text), 0);
+    // Focused state: orange outline box so the selection is unambiguous
+    lv_obj_set_style_outline_color(btn, lv_color_hex(PAL->accent), LV_STATE_FOCUSED);
+    lv_obj_set_style_outline_width(btn, 2, LV_STATE_FOCUSED);
+    lv_obj_set_style_outline_opa(btn, LV_OPA_COVER, LV_STATE_FOCUSED);
+    lv_obj_set_style_bg_color(btn, lv_color_hex(PAL->accent), LV_STATE_FOCUSED);
+    lv_obj_set_style_bg_opa(btn, LV_OPA_20, LV_STATE_FOCUSED);
+    lv_obj_set_style_text_color(btn, lv_color_hex(PAL->accent), LV_STATE_FOCUSED);
+
+    char row[120];
+    uint8_t pl = s_picker_msgs[i].path_len;
+    if (pl == 0xFF)
+      snprintf(row, sizeof(row), "%s: %.70s", s_picker_msgs[i].from, s_picker_msgs[i].text);
+    else if (pl == 0)
+      snprintf(row, sizeof(row), "%s (dir): %.60s", s_picker_msgs[i].from, s_picker_msgs[i].text);
+    else
+      snprintf(row, sizeof(row), "%s (%uh): %.60s", s_picker_msgs[i].from, (unsigned)pl, s_picker_msgs[i].text);
+
+    lv_obj_t *lbl = lv_label_create(btn);
+    lv_label_set_text(lbl, row);
+    lv_obj_set_style_text_color(lbl, lv_color_hex(PAL->text), 0);
+    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_14, 0);
+    lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
+    lv_obj_set_width(lbl, LV_PCT(100));
+
+    lv_obj_add_event_cb(btn, msg_picker_select_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+    lv_group_add_obj(s_msg_picker_group, btn);
+  }
+
+  // Cancel button
+  lv_obj_t *cancel = lv_btn_create(s_msg_picker);
+  lv_obj_set_size(cancel, LV_PCT(100), 30);
+  style_popup_button(cancel);
+  lv_obj_t *clbl = lv_label_create(cancel);
+  lv_label_set_text(clbl, "Cancel");
+  lv_obj_center(clbl);
+  lv_obj_add_event_cb(cancel, msg_picker_cancel_cb, LV_EVENT_CLICKED, nullptr);
+  lv_group_add_obj(s_msg_picker_group, cancel);
+
+  // Connect encoder to group first, then set focus so the focused state renders.
+  lv_indev_t *enc = tpager_lvgl_get_encoder();
+  if (enc && s_msg_picker_group) {
+    lv_indev_set_group(enc, s_msg_picker_group);
+    lv_group_set_editing(s_msg_picker_group, false);
+  }
+  // Start focus on the most recent message (last item in scroll area).
+  lv_obj_t *newest = lv_obj_get_child(scroll, s_picker_msg_count - 1);
+  if (newest) {
+    lv_group_focus_obj(newest);
+    lv_obj_scroll_to_view(newest, LV_ANIM_OFF);
+  }
+  // Record open time so msg_picker_select_cb can ignore the stray click that
+  // LVGL generates from the encoder press that opened the picker.
+  s_picker_open_ms = millis();
+}
+
 static void ch_menu_show(int populated_idx) {
   if (!s_ch_menu_popup) return;
   s_ch_menu_idx = populated_idx;
@@ -1565,7 +1769,28 @@ static void chat_history_render() {
       for (int n = 0; n < s_chat_count; n++) {
         int i = (start + n) % CHAT_RING_SIZE;
         if (s_chat_ring[i].channel_idx != (uint8_t)s_chat_channel_idx) continue;
-        chat_history_append_line(s_chat_ring[i].text);
+        // Annotate with hop count when known.
+        uint8_t pl = s_chat_ring[i].path_len;
+        if (pl != 0xFF) {
+          // Insert "(Nh) " between "sender: " and body.
+          char hop_tag[12];
+          if (pl == 0) snprintf(hop_tag, sizeof(hop_tag), "(dir) ");
+          else         snprintf(hop_tag, sizeof(hop_tag), "(%uh) ", pl);
+          const char *colon = strstr(s_chat_ring[i].text, ": ");
+          if (colon) {
+            char annotated[CHAT_TEXT_MAX + 12];
+            size_t pre = colon - s_chat_ring[i].text + 2;
+            memcpy(annotated, s_chat_ring[i].text, pre);
+            annotated[pre] = 0;
+            strncat(annotated, hop_tag, sizeof(annotated) - pre - 1);
+            strncat(annotated, colon + 2, sizeof(annotated) - strlen(annotated) - 1);
+            chat_history_append_line(annotated);
+          } else {
+            chat_history_append_line(s_chat_ring[i].text);
+          }
+        } else {
+          chat_history_append_line(s_chat_ring[i].text);
+        }
         rendered++;
       }
     }
@@ -1601,6 +1826,7 @@ static void dm_chat_view_open(const uint8_t *pub_key, const char *peer_name) {
   s_dm_peer_name[sizeof(s_dm_peer_name) - 1] = 0;
   s_compose_buf[0] = 0;
   s_compose_len = 0;
+  s_reply_quote[0] = 0;
   // Hide the DM contacts list (and the Contacts/Discovered ones in case
   // the chat is opened from those — would otherwise paint behind the
   // chat history).
@@ -1610,6 +1836,7 @@ static void dm_chat_view_open(const uint8_t *pub_key, const char *peer_name) {
   if (s_chat_scroll) lv_obj_remove_flag(s_chat_scroll, LV_OBJ_FLAG_HIDDEN);
   if (s_chat_compose) lv_obj_remove_flag(s_chat_compose, LV_OBJ_FLAG_HIDDEN);
   if (s_chat_counter) lv_obj_remove_flag(s_chat_counter, LV_OBJ_FLAG_HIDDEN);
+  if (s_reply_bar) lv_obj_add_flag(s_reply_bar, LV_OBJ_FLAG_HIDDEN);
 
   lv_label_set_text(s_subscreen_title, s_dm_peer_name);
 
@@ -1675,11 +1902,13 @@ static void chat_view_open(int channel_idx) {
   // no ring preload needed, and no cross-channel eviction can hide it.
   s_compose_buf[0] = 0;
   s_compose_len = 0;
+  s_reply_quote[0] = 0;
   // Hide the channels list while the chat is active.
   if (s_channel_list) lv_obj_add_flag(s_channel_list, LV_OBJ_FLAG_HIDDEN);
   if (s_chat_scroll) lv_obj_remove_flag(s_chat_scroll, LV_OBJ_FLAG_HIDDEN);
   if (s_chat_compose) lv_obj_remove_flag(s_chat_compose, LV_OBJ_FLAG_HIDDEN);
   if (s_chat_counter) lv_obj_remove_flag(s_chat_counter, LV_OBJ_FLAG_HIDDEN);
+  if (s_reply_bar) lv_obj_add_flag(s_reply_bar, LV_OBJ_FLAG_HIDDEN);
 
   // Title shows which channel we're chatting in.
   char title[40];
@@ -1714,6 +1943,8 @@ static void chat_view_close() {
   if (s_chat_scroll) lv_obj_add_flag(s_chat_scroll, LV_OBJ_FLAG_HIDDEN);
   if (s_chat_compose) lv_obj_add_flag(s_chat_compose, LV_OBJ_FLAG_HIDDEN);
   if (s_chat_counter) lv_obj_add_flag(s_chat_counter, LV_OBJ_FLAG_HIDDEN);
+  if (s_reply_bar) lv_obj_add_flag(s_reply_bar, LV_OBJ_FLAG_HIDDEN);
+  s_reply_quote[0] = 0;
 
   lv_indev_t *enc = tpager_lvgl_get_encoder();
   if (was_dm) {
@@ -1741,17 +1972,18 @@ static void chat_view_close() {
 // (the source of truth for rendering); Public/Test go to the session-only RAM
 // ring. The helper functions above (chan_hist_path / chan_log_append) do the
 // routing so add/delete slot compaction can never desync a channel's history.
-static void chat_ring_push(uint8_t channel_idx, uint32_t timestamp, const char *text) {
-  char path[32];
-  if (chan_hist_path(channel_idx, path, sizeof(path)) && sd_init()) {
-    chan_log_append(path, text); // persistent channel → SD log
-    return;                      // only skip RAM when SD actually worked
+static void chat_ring_push(uint8_t channel_idx, uint32_t timestamp, uint8_t path_len, const char *text) {
+  char sdpath[32];
+  if (chan_hist_path(channel_idx, sdpath, sizeof(sdpath)) && sd_init()) {
+    chan_log_append(sdpath, text); // persistent channel → SD log
+    return;                        // only skip RAM when SD actually worked
   }
   // Ephemeral channel (Public/Test) or SD unavailable → RAM ring.
   if (!ensure_chat_ring()) return;
   ChatMsg &slot = s_chat_ring[s_chat_head];
   slot.channel_idx = channel_idx;
-  slot.timestamp = timestamp;
+  slot.path_len    = path_len;
+  slot.timestamp   = timestamp;
   size_t n = strlen(text);
   if (n >= sizeof(slot.text)) n = sizeof(slot.text) - 1;
   memcpy(slot.text, text, n);
@@ -1760,12 +1992,20 @@ static void chat_ring_push(uint8_t channel_idx, uint32_t timestamp, const char *
   if (s_chat_count < CHAT_RING_SIZE) s_chat_count++;
 }
 
-// Called by MyMesh::onChannelMessageRecv. Single-threaded with the LVGL
-// rendering, so we can update the UI directly when the active chat
-// matches.
-extern "C" void ui_on_channel_message(int channel_idx, uint32_t timestamp, const char *text) {
+static void channel_msg_arrived(int channel_idx, uint32_t timestamp, uint8_t path_len, const char *text) {
   if (!text) return;
-  chat_ring_push((uint8_t)channel_idx, timestamp, text);
+  // Parse "sender: body" to track the last sender for reply.
+  const char *colon = strstr(text, ": ");
+  if (colon) {
+    size_t name_len = colon - text;
+    if (name_len < sizeof(s_last_recv_from)) {
+      memcpy(s_last_recv_from, text, name_len);
+      s_last_recv_from[name_len] = 0;
+      snprintf(s_last_recv_text, sizeof(s_last_recv_text), "%s", colon + 2);
+    }
+  }
+  s_last_recv_path_len = path_len;
+  chat_ring_push((uint8_t)channel_idx, timestamp, path_len, text);
   bool viewing = s_chat_open && !s_dm_mode && s_chat_channel_idx == channel_idx;
   if (viewing) {
     chat_history_render();
@@ -1773,6 +2013,17 @@ extern "C" void ui_on_channel_message(int channel_idx, uint32_t timestamp, const
     if (s_unread_ch[channel_idx] < 0xFFFF) s_unread_ch[channel_idx]++;
     update_tile_badges();
   }
+}
+
+// Called by MyMesh::onChannelMessageRecv via the extended hook (path_len known).
+extern "C" void ui_on_channel_message_path(int channel_idx, uint32_t timestamp, uint8_t path_len, const char *text) {
+  channel_msg_arrived(channel_idx, timestamp, path_len, text);
+}
+
+// Fallback hook (no path info) — kept for any callers that haven't been
+// updated to the extended signature.
+extern "C" void ui_on_channel_message(int channel_idx, uint32_t timestamp, const char *text) {
+  channel_msg_arrived(channel_idx, timestamp, 0xFF, text);
 }
 
 // ---------- Contacts tile (S3.5) --------------------------------------------
@@ -2119,6 +2370,12 @@ bool UITask::isChannelMuted(const char *channel_name) {
   int idx = channel_idx_by_name(channel_name);
   if (idx < 0 || idx >= 64) return false;
   return (s_muted_channels >> idx) & 1;
+}
+
+void UITask::trackLastMsg(const char *from, const char *text, uint8_t path_len) {
+  snprintf(s_last_recv_from, sizeof(s_last_recv_from), "%s", from ? from : "");
+  snprintf(s_last_recv_text, sizeof(s_last_recv_text), "%s", text ? text : "");
+  s_last_recv_path_len = path_len;
 }
 
 void UITask::showPreview(const char *from, const char *text) {
@@ -3326,6 +3583,16 @@ static void build_ui() {
   lv_obj_align(s_chat_counter, LV_ALIGN_BOTTOM_RIGHT, -8, -46);
   lv_obj_add_flag(s_chat_counter, LV_OBJ_FLAG_HIDDEN);
 
+  // Reply context bar — shown left of counter when a reply is staged.
+  s_reply_bar = lv_label_create(s_subscreen_root);
+  lv_label_set_text(s_reply_bar, "");
+  lv_obj_set_style_text_color(s_reply_bar, lv_color_hex(PAL->accent), 0);
+  lv_obj_set_style_text_font(s_reply_bar, &lv_font_montserrat_14, 0);
+  lv_label_set_long_mode(s_reply_bar, LV_LABEL_LONG_DOT);
+  lv_obj_set_size(s_reply_bar, lv_pct(65), 18);
+  lv_obj_align(s_reply_bar, LV_ALIGN_BOTTOM_LEFT, 6, -46);
+  lv_obj_add_flag(s_reply_bar, LV_OBJ_FLAG_HIDDEN);
+
   // ---- Persistent header (always visible) ----
   // Parented to the screen itself and built AFTER s_root + s_subscreen_root
   // so it paints on top of both — node name, DC usage and battery stay
@@ -3780,7 +4047,10 @@ void UITask::loop() {
     // invert the encoder delta while we're not on the horizontal carousel.
     int sign = s_in_subscreen ? -1 : 1;
     while (s_quad_accum >= 4) {
-      if (s_chat_open && s_chat_scroll) {
+      if (s_msg_picker) {
+        // Picker open: route to LVGL so the group moves focus between rows.
+        tpager_lvgl_encoder_delta(+1 * sign);
+      } else if (s_chat_open && s_chat_scroll) {
         // In chat view the encoder scrolls the history wrapper (the
         // spangroup grows inside it). Rotate up = scroll up.
         lv_obj_scroll_by(s_chat_scroll, 0, 28, LV_ANIM_OFF);
@@ -3790,7 +4060,9 @@ void UITask::loop() {
       s_quad_accum -= 4;
     }
     while (s_quad_accum <= -4) {
-      if (s_chat_open && s_chat_scroll) {
+      if (s_msg_picker) {
+        tpager_lvgl_encoder_delta(-1 * sign);
+      } else if (s_chat_open && s_chat_scroll) {
         lv_obj_scroll_by(s_chat_scroll, 0, -28, LV_ANIM_OFF); // rotate down = scroll down
       } else {
         tpager_lvgl_encoder_delta(-1 * sign);
@@ -3858,6 +4130,10 @@ void UITask::loop() {
           // the LVGL long-press already handled this press (debounced inside).
           nav_back_one_level();
         }
+      } else if (s_chat_open && s_compose_len == 0 && !s_msg_picker) {
+        // Short click in chat with empty compose → message picker.
+        // Guard: if picker is already open, let LVGL handle the click (select/cancel).
+        msg_picker_show();
       } else if (s_editing_idx == EDIT_IDX_SET_TIME) {
         // Short click in the Set-time editor commits (the wheel is raw, so
         // LVGL never sees this press as a widget click).

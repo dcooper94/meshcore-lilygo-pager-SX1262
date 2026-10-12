@@ -61,7 +61,8 @@ public:
   void msgRead(int msgcount) override { _msgcount = msgcount; }
   void showPreview(const char *from, const char *text); // implemented in UITask.cpp
   bool isChannelMuted(const char *channel_name);        // implemented in UITask.cpp
-  void newMsg(uint8_t /*path_len*/, const char *from, const char *text, int msgcount) override {
+  void trackLastMsg(const char *from, const char *text, uint8_t path_len); // for reply
+  void newMsg(uint8_t path_len, const char *from, const char *text, int msgcount) override {
     _msgcount = msgcount;
     _auto_off = millis() + AUTO_OFF_MILLIS;
     if (_display) _display->turnOn();
@@ -71,6 +72,7 @@ public:
         showPreview(from, text);
       }
     } else {
+      trackLastMsg(from, text, path_len);
       showPreview(from, text);
     }
   }

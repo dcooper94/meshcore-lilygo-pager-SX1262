@@ -73,15 +73,17 @@ pio run -e T_LoRa_Pager_SX1262_companion_radio_usb
 
 See [`variants/lilygo_tlora_pager_sx1262/README.md`](variants/lilygo_tlora_pager_sx1262/README.md) for the full build notes, pin map, and UI reference.
 
-## 🔌 Power on / off
+## 🔌 Buttons
 
 The pager has three buttons along the bottom edge:
 
-| Button | Short press | Long press (≥ 600 ms) |
-|--------|-------------|----------------------|
-| Left | — | — |
-| **Middle** (encoder click) | Screen on / off | Navigate back |
-| Right | — | — |
+| Button | Action |
+|--------|--------|
+| Left | Reboot |
+| **Middle** (encoder click) | Short press = screen on/off · Long press (≥ 600 ms) = navigate back |
+| Right | — |
+
+> There is no software power-off. Close the lid or let the screen timeout to save battery.
 
 ## 📚 Documentation
 

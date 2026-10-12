@@ -80,11 +80,11 @@ The pager has three buttons along the bottom edge:
 | Button | Short press | Long press (≥ 600 ms) | Very long press (≥ 3 s) |
 |--------|-------------|----------------------|------------------------|
 | Left | Reboot | — | — |
-| **Middle** (scroll-wheel click) | Confirm / select | Navigate back | **Power off** (from home screen only) |
-| Right (BOOT) | Screen on / off | Navigate back | **Power on** (from off state) |
+| Middle | Screen on / off | Navigate back | — |
+| Right | Power on (from off) | — | — |
+| **Scroll wheel click** | Confirm / select | Navigate back | **Power off** (home screen only) |
 
-> Power-off via the middle button only triggers from the home carousel — holding it inside a chat or subscreen just navigates back, so you can't power off by accident.
-> To turn the device back on after powering off, hold the right button.
+> Power-off only triggers from the home carousel — holding the scroll wheel inside a chat or subscreen just navigates back.
 
 ## 📚 Documentation
 

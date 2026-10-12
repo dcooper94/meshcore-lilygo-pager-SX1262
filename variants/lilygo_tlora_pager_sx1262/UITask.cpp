@@ -2395,17 +2395,8 @@ void UITask::trackLastMsg(const char *from, const char *text, uint8_t path_len) 
   s_last_recv_path_len = path_len;
 }
 
-void UITask::showPreview(const char *from, const char *text) {
-  if (!s_toast_popup || !s_toast_label) return;
-  char buf[80];
-  // Show sender + first ~50 chars of message.
-  snprintf(buf, sizeof(buf), "Msg from: %s\n%.50s%s", from ? from : "?", text ? text : "",
-           (text && strlen(text) > 50) ? "..." : "");
-  lv_label_set_text(s_toast_label, buf);
-  lv_obj_remove_flag(s_toast_popup, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_move_foreground(s_toast_popup);
-  if (s_toast_timer) lv_timer_delete(s_toast_timer);
-  s_toast_timer = lv_timer_create(toast_timer_cb, 6000, nullptr);
+void UITask::showPreview(const char * /*from*/, const char * /*text*/) {
+  // Preview popup removed — audio alert + unread badge are sufficient.
 }
 
 static void toast_timer_cb(lv_timer_t *t) {

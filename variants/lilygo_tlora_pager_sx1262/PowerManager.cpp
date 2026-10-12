@@ -54,7 +54,12 @@ void PowerManager::setBacklight(uint8_t level) {
 
 void PowerManager::onActivity() {
     _lastActivity = millis();
-    if (_backlight == 0) setBacklight(255);
+    if (_backlight == 0) setBacklight(_targetBrightness);
+}
+
+void PowerManager::setTargetBrightness(uint8_t level) {
+    _targetBrightness = level;
+    if (_backlight > 0) setBacklight(level); // apply immediately if screen is on
 }
 
 void PowerManager::screenOff() {
@@ -67,7 +72,7 @@ void PowerManager::loop() {
     // Screen: dim -> off. Biggest single battery win.
     if (_backlight > 0) {
         if (idle >= SCREEN_OFF_SECS)      setBacklight(0);
-        else if (idle >= SCREEN_DIM_SECS) setBacklight(40);
+        else if (idle >= SCREEN_DIM_SECS) setBacklight(_targetBrightness / 4);
     }
 
     // GPS duty cycle: skipped entirely when GPS is disabled by the user.

@@ -8,6 +8,7 @@ public:
     void loop();                  // timeouts + GPS duty cycle
     void onActivity();            // call on ANY key/encoder event
     void screenOff();             // immediately kill backlight
+    void setTargetBrightness(uint8_t level); // user's chosen brightness level
     bool isScreenOff()    const { return _backlight == 0; }
     bool isGpsOn()        const { return _gpsOn; }
     bool isGpsEnabled()   const { return !_gpsDisabled; }
@@ -20,6 +21,7 @@ private:
 
     uint32_t _lastActivity = 0;
     uint8_t  _backlight = 255;
+    uint8_t  _targetBrightness = 255;
     bool     _gpsOn = false;
     bool     _gpsDisabled = true;
     uint32_t _gpsWindowStart = 0;

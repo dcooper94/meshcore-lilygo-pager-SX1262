@@ -3599,7 +3599,8 @@ static void build_ui() {
 
 // Push the selected backlight level to the panel's PWM.
 static void apply_brightness() {
-  tpager_lgfx_panel.setBrightness(BL_LEVELS[s_brightness_idx]);
+  uint8_t level = BL_LEVELS[s_brightness_idx];
+  PowerManager::instance().setTargetBrightness(level);
 }
 
 // Re-tint the whole UI to the active palette (PAL). Content lists (settings,

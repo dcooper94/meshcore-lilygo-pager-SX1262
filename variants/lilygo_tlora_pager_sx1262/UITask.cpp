@@ -4182,10 +4182,9 @@ void UITask::loop() {
 #endif
 
 #ifdef PIN_SIDE_BTN
-  // Side button (GPIO 0 / BOOT) — short press: toggle display. Long (≥600 ms): back.
-  // No power-off on this button — use the encoder 3 s hold instead.
-  // Power-off was removed because it triggered accidentally when the button
-  // was held slightly too long, appearing as a random crash.
+  // Side button (GPIO 0 / BOOT):
+  //   short press — toggle sound on/off (wake screen if off)
+  //   long press (≥600 ms) — turn screen off
   {
     int side = digitalRead(PIN_SIDE_BTN);
     if (side != s_side_prev_btn) {
@@ -4194,7 +4193,10 @@ void UITask::loop() {
       } else {
         unsigned long held = millis() - s_side_press_at;
         if (held >= 600) {
-          nav_back_one_level();
+          if (_display && _display->isOn()) {
+            _display->turnOff();
+            PowerManager::instance().screenOff();
+          }
         } else {
           if (_display && !_display->isOn()) {
             _display->turnOn();

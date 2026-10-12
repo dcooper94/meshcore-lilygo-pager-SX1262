@@ -59,8 +59,8 @@ public:
 
   // Companion hooks — minimal stubs for now; full behaviour comes later.
   void msgRead(int msgcount) override { _msgcount = msgcount; }
-  void showPreview(const char *from, const char *text); // implemented in UITask.cpp
-  bool isChannelMuted(const char *channel_name);        // implemented in UITask.cpp
+  void showPreview(const char *from, const char *text);                    // implemented in UITask.cpp
+  bool isChannelMuted(const char *channel_name);                           // implemented in UITask.cpp
   void trackLastMsg(const char *from, const char *text, uint8_t path_len); // for reply
   void newMsg(uint8_t path_len, const char *from, const char *text, int msgcount) override {
     _msgcount = msgcount;
@@ -78,12 +78,20 @@ public:
   }
   void notify(UIEventType t = UIEventType::none) override {
     switch (t) {
-      case UIEventType::contactMessage:    AudioManager::instance().notify(SoundEvent::MSG_DM); break;
-      case UIEventType::newContactMessage: break; // new node heard — no sound (was firing as DM)
-      case UIEventType::channelMessage:
-      case UIEventType::roomMessage:       _newmsg_is_channel = true; break; // sound deferred to newMsg()
-      case UIEventType::ack:               break; // no sound for acks
-      default: _newmsg_is_channel = false; break;
+    case UIEventType::contactMessage:
+      AudioManager::instance().notify(SoundEvent::MSG_DM);
+      break;
+    case UIEventType::newContactMessage:
+      break; // new node heard — no sound (was firing as DM)
+    case UIEventType::channelMessage:
+    case UIEventType::roomMessage:
+      _newmsg_is_channel = true;
+      break; // sound deferred to newMsg()
+    case UIEventType::ack:
+      break; // no sound for acks
+    default:
+      _newmsg_is_channel = false;
+      break;
     }
     _auto_off = millis() + AUTO_OFF_MILLIS;
     if (_display) _display->turnOn();

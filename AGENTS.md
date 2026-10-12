@@ -35,7 +35,16 @@
    - **Test**: what was flashed and verified on hardware
    - Attribution line: `🤖 Generated with [Claude Code](https://claude.com/claude-code)`
 
-4. **Merge** the PR on GitHub (squash or merge commit, your choice).
+4. **Update the PR description** whenever new commits are pushed to the branch:
+   ```bash
+   gh pr edit <number> --repo dcooper94/meshcore-lilygo-pager-SX1262 \
+     --body "..."
+   ```
+   The **Test** section must reflect what was actually flashed and verified, not
+   the original test plan. Add an **Updates** section listing what changed since
+   the PR was opened if the scope shifted materially.
+
+5. **Merge** the PR on GitHub (squash or merge commit, your choice).
 
 5. **Release** after merging one or more related PRs:
    ```bash

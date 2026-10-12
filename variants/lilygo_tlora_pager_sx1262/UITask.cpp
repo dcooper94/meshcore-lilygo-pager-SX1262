@@ -142,11 +142,10 @@ static lv_group_t *s_ch_menu_group;
 static lv_obj_t *s_ch_menu_buttons[4];
 static int s_ch_menu_idx = -1;       // populated channel index
 
-// In-chat reply/path-info popup (shown on encoder short-press in chat).
-static lv_obj_t *s_reply_popup = nullptr;
-static lv_group_t *s_reply_group = nullptr;
-static lv_obj_t *s_reply_buttons[2]; // 0=Reply, 1=Cancel
-// Reply context bar — shown above the compose counter while a reply is staged.
+// In-chat message picker (shown on encoder short-press in chat with empty compose).
+static lv_obj_t *s_msg_picker = nullptr;
+static lv_group_t *s_msg_picker_group = nullptr;
+// Reply context bar — shown left of counter while a reply is staged.
 static lv_obj_t *s_reply_bar = nullptr;
 static char s_reply_quote[121] = { 0 }; // "> from: text\n" prepended on send
 static uint64_t s_muted_channels = 0; // bitmask by channel_idx (runtime only)
@@ -295,6 +294,9 @@ struct ChatMsg {
   char text[CHAT_TEXT_MAX]; // includes "sender: " prefix from the wire
 };
 #define CHAT_RING_SIZE 32
+struct PickerMsg { char from[40]; char text[80]; uint8_t path_len; };
+static PickerMsg s_picker_msgs[CHAT_RING_SIZE];
+static int s_picker_msg_count = 0;
 // Heap-allocated in PSRAM (S3.6d). 32 × ~104 bytes = ~3.3 KB; pushing
 // this to DRAM with the DM ring buffer + click caches added in this
 // sprint overflowed the segment by ~80 bytes. The chat-view code
@@ -417,8 +419,8 @@ static void con_menu_close();
 static void dm_list_populate();
 static void dm_chat_view_open(const uint8_t *pub_key, const char *peer_name);
 static void ch_menu_show(int populated_idx);
-static void reply_popup_show();
-static void reply_popup_hide();
+static void msg_picker_show();
+static void msg_picker_hide();
 static void ch_menu_close();
 
 // High-contrast focused state for popup buttons (disc / con / ch menus).
@@ -776,9 +778,9 @@ static void leave_subscreen();
 static bool s_in_subscreen = false;
 static void nav_back_one_level() {
   if (s_back_handled) return;
-  // Dismiss reply popup before navigating away.
-  if (s_reply_popup && !lv_obj_has_flag(s_reply_popup, LV_OBJ_FLAG_HIDDEN)) {
-    reply_popup_hide();
+  // Dismiss message picker before navigating away.
+  if (s_msg_picker) {
+    msg_picker_hide();
     s_back_handled = true;
     return;
   }
@@ -1266,103 +1268,149 @@ static void ch_menu_close() {
   }
 }
 
-static void reply_popup_hide() {
-  if (s_reply_popup) lv_obj_add_flag(s_reply_popup, LV_OBJ_FLAG_HIDDEN);
+static void msg_picker_hide() {
+  if (s_msg_picker) { lv_obj_del(s_msg_picker); s_msg_picker = nullptr; }
+  if (s_msg_picker_group) { lv_group_del(s_msg_picker_group); s_msg_picker_group = nullptr; }
   lv_indev_t *enc = tpager_lvgl_get_encoder();
   if (enc && s_chat_group) lv_indev_set_group(enc, s_chat_group);
 }
 
-static void reply_popup_btn_cb(lv_event_t *e) {
-  int which = (int)(intptr_t)lv_event_get_user_data(e);
-  reply_popup_hide();
-  if (which == 0 && s_last_recv_from[0]) {
-    // Stage the quote for prepending on send; show the context bar so the
-    // user can see what they're replying to without cluttering the compose.
-    snprintf(s_reply_quote, sizeof(s_reply_quote), "> %s: %.80s\n", s_last_recv_from, s_last_recv_text);
+static void msg_picker_select_cb(lv_event_t *e) {
+  int idx = (int)(intptr_t)lv_event_get_user_data(e);
+  if (idx >= 0 && idx < s_picker_msg_count) {
+    snprintf(s_reply_quote, sizeof(s_reply_quote), "> %s: %.80s\n",
+             s_picker_msgs[idx].from, s_picker_msgs[idx].text);
     if (s_reply_bar) {
       char rbuf[80];
-      snprintf(rbuf, sizeof(rbuf), "↩ %s: %.40s", s_last_recv_from, s_last_recv_text);
+      snprintf(rbuf, sizeof(rbuf), "↩ %s: %.40s",
+               s_picker_msgs[idx].from, s_picker_msgs[idx].text);
       lv_label_set_text(s_reply_bar, rbuf);
       lv_obj_remove_flag(s_reply_bar, LV_OBJ_FLAG_HIDDEN);
     }
-    // Keep compose empty — user types only the reply text.
     s_compose_buf[0] = 0;
     s_compose_len = 0;
     chat_compose_render();
   }
+  msg_picker_hide();
 }
 
-static void reply_popup_show() {
-  if (!s_last_recv_from[0]) return; // nothing to reply to
+static void msg_picker_cancel_cb(lv_event_t *e) { msg_picker_hide(); }
 
-  // Build popup on first call.
-  if (!s_reply_popup) {
-    s_reply_popup = lv_obj_create(lv_layer_top());
-    lv_obj_set_size(s_reply_popup, 300, 180);
-    lv_obj_center(s_reply_popup);
-    lv_obj_set_style_bg_color(s_reply_popup, lv_color_hex(PAL->surface), 0);
-    lv_obj_set_style_border_color(s_reply_popup, lv_color_hex(PAL->border), 0);
-    lv_obj_set_style_border_width(s_reply_popup, 1, 0);
-    lv_obj_set_style_pad_all(s_reply_popup, 8, 0);
-    lv_obj_set_flex_flow(s_reply_popup, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(s_reply_popup, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_row(s_reply_popup, 6, 0);
-
-    s_reply_group = lv_group_create();
-
-    // Info label (sender + path)
-    lv_obj_t *info = lv_label_create(s_reply_popup);
-    lv_obj_set_width(info, LV_PCT(100));
-    lv_label_set_long_mode(info, LV_LABEL_LONG_WRAP);
-    lv_obj_set_style_text_color(info, lv_color_hex(PAL->text_dim), 0);
-
-    // Preview label (first 60 chars of message)
-    lv_obj_t *preview = lv_label_create(s_reply_popup);
-    lv_obj_set_width(preview, LV_PCT(100));
-    lv_label_set_long_mode(preview, LV_LABEL_LONG_WRAP);
-    lv_obj_set_style_text_color(preview, lv_color_hex(PAL->text), 0);
-
-    const char *btn_labels[2] = { "Reply", "Cancel" };
-    for (int i = 0; i < 2; i++) {
-      lv_obj_t *btn = lv_btn_create(s_reply_popup);
-      lv_obj_set_width(btn, LV_PCT(100));
-      lv_obj_set_height(btn, 36);
-      style_popup_button(btn);
-      lv_obj_t *lbl = lv_label_create(btn);
-      lv_label_set_text(lbl, btn_labels[i]);
-      lv_obj_center(lbl);
-      lv_obj_add_event_cb(btn, reply_popup_btn_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
-      lv_group_add_obj(s_reply_group, btn);
-      s_reply_buttons[i] = btn;
+static void msg_picker_show() {
+  // Collect messages for the current channel from the ring, skip own messages.
+  s_picker_msg_count = 0;
+  if (!s_dm_mode && s_chat_ring && s_chat_count > 0) {
+    int start = (s_chat_head - s_chat_count + CHAT_RING_SIZE) % CHAT_RING_SIZE;
+    for (int n = 0; n < s_chat_count; n++) {
+      int i = (start + n) % CHAT_RING_SIZE;
+      if (s_chat_ring[i].channel_idx != (uint8_t)s_chat_channel_idx) continue;
+      if (strncmp(s_chat_ring[i].text, "(me): ", 6) == 0) continue;
+      const char *colon = strstr(s_chat_ring[i].text, ": ");
+      if (!colon) continue;
+      if (s_picker_msg_count >= CHAT_RING_SIZE) break;
+      int fi = s_picker_msg_count++;
+      size_t flen = (size_t)(colon - s_chat_ring[i].text);
+      if (flen >= sizeof(s_picker_msgs[fi].from)) flen = sizeof(s_picker_msgs[fi].from) - 1;
+      memcpy(s_picker_msgs[fi].from, s_chat_ring[i].text, flen);
+      s_picker_msgs[fi].from[flen] = 0;
+      strncpy(s_picker_msgs[fi].text, colon + 2, sizeof(s_picker_msgs[fi].text) - 1);
+      s_picker_msgs[fi].text[sizeof(s_picker_msgs[fi].text) - 1] = 0;
+      s_picker_msgs[fi].path_len = s_chat_ring[i].path_len;
     }
-    lv_obj_add_flag(s_reply_popup, LV_OBJ_FLAG_HIDDEN);
+  }
+  // Fall back to last received if ring has no entries for this channel.
+  if (s_picker_msg_count == 0) {
+    if (!s_last_recv_from[0]) return;
+    strncpy(s_picker_msgs[0].from, s_last_recv_from, sizeof(s_picker_msgs[0].from) - 1);
+    strncpy(s_picker_msgs[0].text, s_last_recv_text, sizeof(s_picker_msgs[0].text) - 1);
+    s_picker_msgs[0].path_len = s_last_recv_path_len;
+    s_picker_msg_count = 1;
   }
 
-  // Update info + preview labels.
-  lv_obj_t *info    = lv_obj_get_child(s_reply_popup, 0);
-  lv_obj_t *preview = lv_obj_get_child(s_reply_popup, 1);
-  if (info) {
-    char hop_buf[32];
-    if (s_last_recv_path_len == 0xFF)      snprintf(hop_buf, sizeof(hop_buf), "path: unknown");
-    else if (s_last_recv_path_len == 0)    snprintf(hop_buf, sizeof(hop_buf), "path: direct");
-    else snprintf(hop_buf, sizeof(hop_buf), "path: %u hop%s", s_last_recv_path_len,
-                  s_last_recv_path_len == 1 ? "" : "s");
-    char ibuf[64];
-    snprintf(ibuf, sizeof(ibuf), "From: %s  |  %s", s_last_recv_from, hop_buf);
-    lv_label_set_text(info, ibuf);
-  }
-  if (preview) {
-    char pbuf[80];
-    snprintf(pbuf, sizeof(pbuf), "\"%.60s%s\"",
-             s_last_recv_text, strlen(s_last_recv_text) > 60 ? "..." : "");
-    lv_label_set_text(preview, pbuf);
+  // Build picker overlay (recreated fresh each time so messages are current).
+  s_msg_picker = lv_obj_create(lv_layer_top());
+  lv_obj_set_size(s_msg_picker, 460, 210);
+  lv_obj_align(s_msg_picker, LV_ALIGN_CENTER, 0, 0);
+  lv_obj_set_style_bg_color(s_msg_picker, lv_color_hex(PAL->bg), 0);
+  lv_obj_set_style_border_color(s_msg_picker, lv_color_hex(PAL->accent), 0);
+  lv_obj_set_style_border_width(s_msg_picker, 2, 0);
+  lv_obj_set_style_pad_all(s_msg_picker, 4, 0);
+  lv_obj_set_flex_flow(s_msg_picker, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(s_msg_picker, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_row(s_msg_picker, 2, 0);
+  lv_obj_set_style_radius(s_msg_picker, 6, 0);
+
+  // Header
+  lv_obj_t *hdr = lv_label_create(s_msg_picker);
+  lv_label_set_text(hdr, "↩  Select message to reply to");
+  lv_obj_set_style_text_color(hdr, lv_color_hex(PAL->accent), 0);
+  lv_obj_set_style_text_font(hdr, &lv_font_montserrat_14, 0);
+  lv_obj_set_width(hdr, LV_PCT(100));
+
+  // Scrollable message list
+  lv_obj_t *scroll = lv_obj_create(s_msg_picker);
+  lv_obj_remove_style_all(scroll);
+  lv_obj_set_size(scroll, LV_PCT(100), 138);
+  lv_obj_set_style_bg_color(scroll, lv_color_hex(PAL->bg), 0);
+  lv_obj_set_style_bg_opa(scroll, LV_OPA_COVER, 0);
+  lv_obj_add_flag(scroll, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(scroll, LV_DIR_VER);
+  lv_obj_set_scroll_snap_y(scroll, LV_SCROLL_SNAP_NONE);
+  lv_obj_set_flex_flow(scroll, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(scroll, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_row(scroll, 2, 0);
+  lv_obj_set_style_pad_all(scroll, 2, 0);
+
+  s_msg_picker_group = lv_group_create();
+
+  for (int i = 0; i < s_picker_msg_count; i++) {
+    lv_obj_t *btn = lv_btn_create(scroll);
+    lv_obj_set_size(btn, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_style_min_height(btn, 26, 0);
+    lv_obj_set_style_pad_all(btn, 4, 0);
+    style_popup_button(btn); // normal=surface bg, focused=orange bg
+
+    char row[120];
+    uint8_t pl = s_picker_msgs[i].path_len;
+    if (pl == 0xFF)
+      snprintf(row, sizeof(row), "%s: %.70s", s_picker_msgs[i].from, s_picker_msgs[i].text);
+    else if (pl == 0)
+      snprintf(row, sizeof(row), "%s (dir): %.60s", s_picker_msgs[i].from, s_picker_msgs[i].text);
+    else
+      snprintf(row, sizeof(row), "%s (%uh): %.60s", s_picker_msgs[i].from, (unsigned)pl, s_picker_msgs[i].text);
+
+    lv_obj_t *lbl = lv_label_create(btn);
+    lv_label_set_text(lbl, row);
+    lv_obj_set_style_text_color(lbl, lv_color_hex(PAL->text), 0);
+    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_14, 0);
+    lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
+    lv_obj_set_width(lbl, LV_PCT(100));
+
+    lv_obj_add_event_cb(btn, msg_picker_select_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+    lv_group_add_obj(s_msg_picker_group, btn);
   }
 
-  lv_obj_remove_flag(s_reply_popup, LV_OBJ_FLAG_HIDDEN);
+  // Cancel button
+  lv_obj_t *cancel = lv_btn_create(s_msg_picker);
+  lv_obj_set_size(cancel, LV_PCT(100), 30);
+  style_popup_button(cancel);
+  lv_obj_t *clbl = lv_label_create(cancel);
+  lv_label_set_text(clbl, "Cancel");
+  lv_obj_center(clbl);
+  lv_obj_add_event_cb(cancel, msg_picker_cancel_cb, LV_EVENT_CLICKED, nullptr);
+  lv_group_add_obj(s_msg_picker_group, cancel);
+
+  // Start focus on the most recent message (last item in scroll area).
+  lv_obj_t *newest = lv_obj_get_child(scroll, s_picker_msg_count - 1);
+  if (newest) {
+    lv_group_focus_obj(newest);
+    lv_obj_scroll_to_view(newest, LV_ANIM_OFF);
+  }
+
   lv_indev_t *enc = tpager_lvgl_get_encoder();
-  if (enc && s_reply_group) {
-    lv_indev_set_group(enc, s_reply_group);
-    lv_group_set_editing(s_reply_group, false);
+  if (enc && s_msg_picker_group) {
+    lv_indev_set_group(enc, s_msg_picker_group);
+    lv_group_set_editing(s_msg_picker_group, false);
   }
 }
 
@@ -4059,9 +4107,9 @@ void UITask::loop() {
           // the LVGL long-press already handled this press (debounced inside).
           nav_back_one_level();
         }
-      } else if (s_chat_open && s_compose_len == 0 && s_last_recv_from[0]) {
-        // Short click in chat with empty compose → reply/path popup.
-        reply_popup_show();
+      } else if (s_chat_open && s_compose_len == 0) {
+        // Short click in chat with empty compose → message picker.
+        msg_picker_show();
       } else if (s_editing_idx == EDIT_IDX_SET_TIME) {
         // Short click in the Set-time editor commits (the wheel is raw, so
         // LVGL never sees this press as a widget click).

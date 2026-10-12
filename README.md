@@ -75,9 +75,13 @@ See [`variants/lilygo_tlora_pager_sx1262/README.md`](variants/lilygo_tlora_pager
 
 ## 🔌 Power on / off
 
-- **Power on:** small side button (between the antennas).
-- **Screen on/off:** short press of the side button (BOOT / GPIO 0).
-- **Navigate back:** hold side button ≥ 600 ms.
+The pager has three buttons along the bottom edge:
+
+| Button | Short press | Long press (≥ 600 ms) |
+|--------|-------------|----------------------|
+| Left | — | — |
+| **Middle** (encoder click) | Screen on / off | Navigate back |
+| Right | — | — |
 
 ## 📚 Documentation
 

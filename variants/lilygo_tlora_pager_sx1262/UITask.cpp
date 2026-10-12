@@ -4125,8 +4125,9 @@ void UITask::loop() {
           // the LVGL long-press already handled this press (debounced inside).
           nav_back_one_level();
         }
-      } else if (s_chat_open && s_compose_len == 0) {
+      } else if (s_chat_open && s_compose_len == 0 && !s_msg_picker) {
         // Short click in chat with empty compose → message picker.
+        // Guard: if picker is already open, let LVGL handle the click (select/cancel).
         msg_picker_show();
       } else if (s_editing_idx == EDIT_IDX_SET_TIME) {
         // Short click in the Set-time editor commits (the wheel is raw, so

@@ -112,6 +112,7 @@ static lv_obj_t *s_root;
 static lv_obj_t *s_header_label;
 static lv_obj_t *s_battery_label;
 static lv_obj_t *s_dc_label;            // duty-cycle % shown between name + battery
+static lv_obj_t *s_sound_icon = nullptr; // top-right sound status indicator
 static lv_obj_t *s_back_hint = nullptr; // bottom hint on every sub-screen (Map hides it)
 static lv_obj_t *s_tile_row;
 static lv_obj_t *s_tile_buttons[NUM_TILES];
@@ -2932,7 +2933,8 @@ enum {
   SET_BRIGHTNESS,  // click = cycle backlight Low/Med/Max
   SET_TIME,        // display (NL local, DST-aware) — click refreshes
 };
-static void save_ui_prefs();                   // persist theme + brightness (defined below)
+static void save_ui_prefs();                   // persist theme + brightness + sound (defined below)
+static void sound_icon_update();               // update top-bar sound icon (defined below)
 static lv_obj_t *s_settings_gps_lbl = nullptr; // label of the GPS-status row
 
 static void settings_row_clicked(lv_event_t *e) {
@@ -3616,6 +3618,11 @@ static void build_ui() {
   lv_obj_set_style_text_color(s_battery_label, lv_color_hex(PAL->text), 0);
   lv_obj_align(s_battery_label, LV_ALIGN_TOP_RIGHT, -6, 4);
 
+  s_sound_icon = lv_label_create(scr);
+  lv_obj_set_style_text_font(s_sound_icon, &lv_font_montserrat_14, 0);
+  lv_obj_align(s_sound_icon, LV_ALIGN_TOP_RIGHT, -46, 4);
+  sound_icon_update();
+
   // Toast popup (item 2) — small centered label, hidden until ui_toast().
   s_toast_popup = lv_obj_create(scr);
   lv_obj_set_size(s_toast_popup, lv_pct(70), LV_SIZE_CONTENT);
@@ -3951,11 +3958,21 @@ static void focused_changed_cb(lv_event_t *e) {
 
 // ---------- Theme / brightness persistence -----------------------------------
 
+static void sound_icon_update() {
+  if (!s_sound_icon) return;
+  bool en = AudioManager::instance().isEnabled();
+  lv_label_set_text(s_sound_icon, en ? LV_SYMBOL_VOLUME_MID : LV_SYMBOL_MUTE);
+  lv_obj_set_style_text_color(s_sound_icon,
+    en ? lv_color_hex(PAL->text_dim) : lv_color_hex(PAL->accent), 0);
+}
+
 static void load_ui_prefs() {
   Preferences p;
   if (p.begin("tpager", true /*read-only*/)) {
     s_theme = p.getUChar("theme", 0);
     s_brightness_idx = p.getUChar("bl", 0);
+    bool snd = p.getBool("sound", true);
+    AudioManager::instance().setEnabled(snd);
     p.end();
   }
   if (s_theme > 1) s_theme = 0;
@@ -3968,6 +3985,7 @@ static void save_ui_prefs() {
   if (p.begin("tpager", false)) {
     p.putUChar("theme", s_theme);
     p.putUChar("bl", s_brightness_idx);
+    p.putBool("sound", AudioManager::instance().isEnabled());
     p.end();
   }
 }
@@ -4164,10 +4182,9 @@ void UITask::loop() {
 #endif
 
 #ifdef PIN_SIDE_BTN
-  // Side button (GPIO 0 / BOOT) — short press: toggle display. Long (≥600 ms): back.
-  // No power-off on this button — use the encoder 3 s hold instead.
-  // Power-off was removed because it triggered accidentally when the button
-  // was held slightly too long, appearing as a random crash.
+  // Side button (GPIO 0 / BOOT):
+  //   short press — toggle sound on/off (wake screen if off)
+  //   long press (≥600 ms) — turn screen off
   {
     int side = digitalRead(PIN_SIDE_BTN);
     if (side != s_side_prev_btn) {
@@ -4176,17 +4193,21 @@ void UITask::loop() {
       } else {
         unsigned long held = millis() - s_side_press_at;
         if (held >= 600) {
-          nav_back_one_level();
+          if (_display && _display->isOn()) {
+            _display->turnOff();
+            PowerManager::instance().screenOff();
+          }
         } else {
-          if (_display) {
-            if (_display->isOn()) {
-              _display->turnOff();
-              PowerManager::instance().screenOff();
-            } else {
-              _display->turnOn();
-              PowerManager::instance().onActivity();
-              _auto_off = millis() + s_screen_off_ms;
-            }
+          if (_display && !_display->isOn()) {
+            _display->turnOn();
+            PowerManager::instance().onActivity();
+            _auto_off = millis() + s_screen_off_ms;
+          } else {
+            bool snd = !AudioManager::instance().isEnabled();
+            AudioManager::instance().setEnabled(snd);
+            save_ui_prefs();
+            sound_icon_update();
+            ui_toast(snd ? "Sound on" : "Sound muted");
           }
         }
       }

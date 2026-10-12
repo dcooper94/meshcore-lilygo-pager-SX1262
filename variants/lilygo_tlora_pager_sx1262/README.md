@@ -6,11 +6,19 @@ this folder also covers the rest of the on-board hardware (ST7796 IPS
 display, TCA8418 keyboard, rotary encoder, AXP-style PMU, BQ27220 fuel
 gauge, MicroNMEA GPS, XL9555 IO expander).
 
+## Button layout
+
+Three buttons sit along the bottom edge of the Pager (left to right):
+
+| # | Label | GPIO | Behaviour |
+|---|-------|------|-----------|
+| 1 | RST | — (CHIP_PU) | Hard reset. Hardwired — not programmable. |
+| 2 | BOOT | GPIO 0 | **Short press:** toggle sound alerts on/off (toast + top-bar icon). **Long press (≥ 600 ms):** turn screen off. Pressing while screen is off wakes the display. |
+| 3 | PWR | — (BQ25896) | Powers the device on from off. Hardwired to PMU — not programmable. |
+
 ## Powering the device on and off
 
-* **Power on:** the small dedicated power button on the side of the
-  Pager (the one between the antennas) — same as the LilyGo factory
-  firmware.
+* **Power on:** press the PWR button (button 3, rightmost).
 * **Power off:** hold the **encoder / scroll button for ≥ 3 seconds**.
   We pull the system rail down via the BQ25896 charger's BATFET_DIS
   bit (`tpager_power_off()` in `target.cpp`, mirrors

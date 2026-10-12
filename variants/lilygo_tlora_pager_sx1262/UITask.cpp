@@ -145,6 +145,7 @@ static int s_ch_menu_idx = -1;       // populated channel index
 // In-chat message picker (shown on encoder short-press in chat with empty compose).
 static lv_obj_t *s_msg_picker = nullptr;
 static lv_group_t *s_msg_picker_group = nullptr;
+static uint32_t s_picker_open_ms = 0; // guard: absorbs the press that opened the picker
 // Reply context bar — shown left of counter while a reply is staged.
 static lv_obj_t *s_reply_bar = nullptr;
 static char s_reply_quote[121] = { 0 }; // "> from: text\n" prepended on send
@@ -1276,6 +1277,9 @@ static void msg_picker_hide() {
 }
 
 static void msg_picker_select_cb(lv_event_t *e) {
+  // The same encoder press that opened the picker will be seen by LVGL as a
+  // click on the focused button during the same loop tick. Guard against it.
+  if (millis() - s_picker_open_ms < 200) return;
   int idx = (int)(intptr_t)lv_event_get_user_data(e);
   if (idx >= 0 && idx < s_picker_msg_count) {
     snprintf(s_reply_quote, sizeof(s_reply_quote), "> %s: %.80s\n",
@@ -1423,6 +1427,9 @@ static void msg_picker_show() {
     lv_group_focus_obj(newest);
     lv_obj_scroll_to_view(newest, LV_ANIM_OFF);
   }
+  // Record open time so msg_picker_select_cb can ignore the stray click that
+  // LVGL generates from the encoder press that opened the picker.
+  s_picker_open_ms = millis();
 }
 
 static void ch_menu_show(int populated_idx) {

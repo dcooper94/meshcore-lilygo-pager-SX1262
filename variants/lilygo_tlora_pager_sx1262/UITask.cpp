@@ -924,10 +924,11 @@ static void recent_format(char *buf, int cap) {
       snprintf(age, sizeof(age), "?");
     }
     char hops[8];
-    if (paths[i].path_len == 0)
+    uint8_t hop_count = paths[i].path_len & 0x3F;
+    if (hop_count == 0)
       snprintf(hops, sizeof(hops), "direct");
     else
-      snprintf(hops, sizeof(hops), "%d hop", paths[i].path_len);
+      snprintf(hops, sizeof(hops), "%d hop", hop_count);
     pos += snprintf(buf + pos, cap - pos, "%-20.20s  %s  %s\n", paths[i].name, age, hops);
   }
   if (pos > 0 && buf[pos - 1] == '\n') buf[pos - 1] = '\0';
@@ -1400,12 +1401,13 @@ static void msg_picker_show() {
 
     char row[120];
     uint8_t pl = s_picker_msgs[i].path_len;
+    uint8_t pl_hops = pl & 0x3F;
     if (pl == 0xFF)
       snprintf(row, sizeof(row), "%s: %.70s", s_picker_msgs[i].from, s_picker_msgs[i].text);
-    else if (pl == 0)
+    else if (pl_hops == 0)
       snprintf(row, sizeof(row), "%s (dir): %.60s", s_picker_msgs[i].from, s_picker_msgs[i].text);
     else
-      snprintf(row, sizeof(row), "%s (%uh): %.60s", s_picker_msgs[i].from, (unsigned)pl,
+      snprintf(row, sizeof(row), "%s (%uh): %.60s", s_picker_msgs[i].from, (unsigned)pl_hops,
                s_picker_msgs[i].text);
 
     lv_obj_t *lbl = lv_label_create(btn);
@@ -1788,10 +1790,11 @@ static void chat_history_render() {
         if (pl != 0xFF) {
           // Insert "(Nh) " between "sender: " and body.
           char hop_tag[12];
-          if (pl == 0)
+          uint8_t pl_hops = pl & 0x3F;
+          if (pl_hops == 0)
             snprintf(hop_tag, sizeof(hop_tag), "(dir) ");
           else
-            snprintf(hop_tag, sizeof(hop_tag), "(%uh) ", pl);
+            snprintf(hop_tag, sizeof(hop_tag), "(%uh) ", pl_hops);
           const char *colon = strstr(s_chat_ring[i].text, ": ");
           if (colon) {
             char annotated[CHAT_TEXT_MAX + 12];

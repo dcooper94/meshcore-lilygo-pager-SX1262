@@ -1,101 +1,93 @@
-<p align="center">
-  <img src=".github/assets/banner.svg" alt="MeshCore for the LilyGo T-Lora Pager (LR1121)" width="100%">
-</p>
-
-<h1 align="center">MeshCore for the LilyGo T-Lora Pager (LR1121)</h1>
+<h1 align="center">MeshCore for the LilyGo T-LoRa Pager (SX1262)</h1>
 
 <p align="center">
   A standalone, off-grid <strong>LoRa mesh messenger</strong> firmware for the
-  <strong>LilyGo T-Lora Pager</strong> with the multi-band <strong>Semtech LR1121</strong> radio —
+  <strong>LilyGo T-LoRa Pager</strong> with the <strong>Semtech SX1262</strong> radio —
   a <a href="https://meshtastic.org">Meshtastic</a> alternative built on
   <a href="https://github.com/meshcore-dev/MeshCore">MeshCore</a>. No phone required.
 </p>
 
 <p align="center">
-  <a href="https://github.com/CJvanSoest/meshcore-lilygo-pager-LR1121/actions/workflows/pr-build-check.yml"><img src="https://github.com/CJvanSoest/meshcore-lilygo-pager-LR1121/actions/workflows/pr-build-check.yml/badge.svg" alt="Build"></a>
-  <a href="https://github.com/CJvanSoest/meshcore-lilygo-pager-LR1121/releases/latest"><img src="https://img.shields.io/github/v/release/CJvanSoest/meshcore-lilygo-pager-LR1121?label=release" alt="Latest release"></a>
+  <a href="https://github.com/dcooper94/meshcore-lilygo-pager-SX1262/releases/latest"><img src="https://img.shields.io/github/v/release/dcooper94/meshcore-lilygo-pager-SX1262?label=release" alt="Latest release"></a>
   <img src="https://img.shields.io/badge/platform-ESP32--S3-3178c6" alt="Platform ESP32-S3">
-  <img src="https://img.shields.io/badge/radio-LR1121-FAA61A" alt="Radio LR1121">
-  <a href="https://github.com/CJvanSoest/meshcore-lilygo-pager-LR1121/blob/main/license.txt"><img src="https://img.shields.io/github/license/CJvanSoest/meshcore-lilygo-pager-LR1121" alt="License"></a>
+  <img src="https://img.shields.io/badge/radio-SX1262-FAA61A" alt="Radio SX1262">
+  <a href="license.txt"><img src="https://img.shields.io/github/license/dcooper94/meshcore-lilygo-pager-SX1262" alt="License"></a>
 </p>
+
+> **This is an SX1262 port** of [CJvanSoest/meshcore-lilygo-pager-LR1121](https://github.com/CJvanSoest/meshcore-lilygo-pager-LR1121).
+> If your pager has an **LR1121** radio, use the upstream repo instead.
 
 ---
 
-The **LilyGo T-Lora Pager** is a pocket LoRa handheld with a colour IPS screen, a
-QWERTY keyboard and a scroll-wheel. This firmware turns it into a fully
-**standalone MeshCore node** — you read and write channel messages and direct
-messages, watch nodes appear on an offline map, and manage the radio, all on the
-device itself. It joins the same mesh as any other MeshCore, Meshtastic-style
-off-grid network, and works where there is no cell coverage, no WiFi and no
-internet.
+The **LilyGo T-LoRa Pager** is a pocket LoRa handheld with a colour IPS screen, a QWERTY keyboard and a scroll-wheel. This firmware turns it into a fully **standalone MeshCore node** — read and write channel messages and direct messages, watch nodes appear on an offline map, and manage the radio, all on the device itself. No phone, no WiFi, no internet required.
 
 ## ✨ Features
 
-- **Standalone LVGL UI** — a tile carousel (Radio · Channels · DM · Contacts · Discovered · Map · Settings) driven entirely by the scroll-wheel + QWERTY keyboard; no companion phone app needed.
-- **Channels & direct messages** — hashtag channels and per-contact DMs with an on-screen keyboard, unread badges, and **per-channel chat history saved to the microSD card** (survives reboots).
-- **GPS + offline maps** — live position fix, a satellite-test screen, and a pannable/zoomable **offline map** rendered from tiles on the SD card, with your position and heard nodes drawn on it.
-- **Dark / light themes + brightness control** — a white high-contrast theme and Low/Med/Max backlight for readability in bright sunlight; both persist across reboots.
-- **On-device radio settings** — frequency, spreading factor, bandwidth, coding rate, TX power, RX-boost and node name, all editable from the UI and saved to flash.
-- **Contacts & node discovery** — a live list of heard nodes with SNR/RSSI/distance, plus a "Discovered" view to add new nodes or send adverts.
-- **Repeater build** — a low-footprint relay/repeater firmware for the same hardware.
+- **Tile carousel UI** — Radio · Channels · DM · Contacts · Discovered · Advert · Map · Settings · About · Sat Test · Recent, driven by the scroll-wheel and keyboard; no companion app needed.
+- **Channels & direct messages** — hashtag channels and per-contact DMs with an on-screen keyboard, unread badges, and chat history.
+- **Per-channel mute** — long-press any channel row (including Public) to mute/unmute notifications.
+- **GPS + offline maps** — live position fix, satellite test screen, and a pannable/zoomable offline map rendered from SD-card tiles, with your position and heard nodes drawn on it.
+- **RSSI + noise floor + GPS status** displayed in the top status bar.
+- **GPS off by default** — enable in Settings when needed; duty-cycles automatically (30 s on / 270 s off) to save battery.
+- **Accurate battery %** — reads the BQ27220 coulomb counter; calibration reference persists across reboots via NVS.
+- **Side button** — short press = screen on/off; long press (≥ 600 ms) = navigate back.
+- **Sounds only for messages** — DMs and channel messages play a tone; adverts, ACKs, and new-node discoveries are silent.
+- **On-device radio settings** — frequency, SF, BW, CR, TX power, node name, all editable from the UI.
+- **Dark / light themes + brightness control** — persist across reboots.
 
-## 📟 Supported hardware
+## 📟 Hardware
 
 | | |
 |---|---|
-| **Board** | LilyGo T-Lora Pager (LR1121 variant) |
-| **MCU** | Espressif ESP32-S3 (PSRAM) |
-| **Radio** | Semtech LR1121 — multi-band, sub-GHz **and** 2.4 GHz |
-| **Display** | Sitronix ST7796 IPS LCD |
-| **Input** | TCA8418 QWERTY keyboard + rotary encoder / scroll-wheel |
-| **Other** | GPS, BQ25896 charger / BQ27220 fuel gauge, XL9555 IO expander, microSD |
+| **Board** | LilyGo T-LoRa Pager (**SX1262** variant) |
+| **MCU** | Espressif ESP32-S3 (with PSRAM) |
+| **Radio** | Semtech SX1262 — sub-GHz |
+| **Display** | Sitronix ST7796 IPS LCD (480 × 222) |
+| **Input** | TCA8418 QWERTY keyboard + rotary encoder |
+| **Other** | GPS, BQ25896 charger, BQ27220 fuel gauge, XL9555 IO expander, microSD |
 
-> This is the **LR1121** variant. Boards fitted with an SX1262 use a different
-> radio driver and are not covered here.
+## ⚡ Flashing pre-built firmware
 
-## ⚡ Flashing a pre-built firmware
+1. Download `tpager-sx1262-firmware.zip` from the [**Releases**](https://github.com/dcooper94/meshcore-lilygo-pager-SX1262/releases/latest) page and extract it.
+2. Hold **BOOT**, tap **RST**, release **BOOT** to enter download mode.
+3. Flash with [esptool](https://github.com/espressif/esptool):
 
-1. Download the latest firmware from the [**Releases**](https://github.com/CJvanSoest/meshcore-lilygo-pager-LR1121/releases/latest) page. Two builds are published:
-   - `…companion_radio_usb…` — the standalone messenger UI (most people want this).
-   - `…repeater…` — the relay/repeater build.
-2. Flash it with [esptool](https://github.com/espressif/esptool) or the [Adafruit ESPTool web flasher](https://adafruit.github.io/Adafruit_WebSerial_ESPTool/):
-   - **`…-merged.bin`** → write to offset **`0x0`** (full image, easiest for a first flash).
-   - **`….bin`** (app only) → write to offset **`0x10000`** to update without erasing your saved settings / SD data.
-3. **Power on** with the small side button; the UI comes up on the screen.
+```bash
+python -m esptool --chip esp32s3 --port /dev/ttyACM0 --baud 115200 \
+  --no-stub --before default_reset --after hard_reset \
+  write_flash --flash_mode dio --flash_freq 80m --flash_size 16MB \
+  0x0000 bootloader.bin 0x8000 partitions.bin 0x10000 firmware.bin
+```
+
+Replace `/dev/ttyACM0` with your port (`COM3`, `/dev/tty.usbmodem*`, etc.).
+
+See the README inside the zip for app-only update instructions (faster, preserves your settings).
 
 ## 🛠️ Build from source
 
-Built with [PlatformIO](https://platformio.org/):
+Requires [PlatformIO](https://platformio.org/):
 
 ```bash
-# Standalone messenger (companion UI)
-pio run -e T_LoRa_Pager_LR1121_companion_radio_usb -t upload
-
-# Repeater
-pio run -e T_LoRa_Pager_LR1121_repeater -t upload
+pio run -e T_LoRa_Pager_SX1262_companion_radio_usb
 ```
 
-See [`variants/lilygo_tlora_pager_lr1121/README.md`](variants/lilygo_tlora_pager_lr1121/README.md) for the full build/flash notes, pin map, UI navigation and hardware details.
+See [`variants/lilygo_tlora_pager_sx1262/README.md`](variants/lilygo_tlora_pager_sx1262/README.md) for the full build notes, pin map, and UI reference.
 
 ## 🔌 Power on / off
 
-- **Power on:** the small dedicated button on the side (between the antennas).
-- **Power off:** hold the **scroll-wheel / encoder button for ≥ 3 seconds** (the shorter 600 ms hold is the in-UI "back" gesture).
+- **Power on:** small side button (between the antennas).
+- **Screen on/off:** short press of the side button (BOOT / GPIO 0).
+- **Navigate back:** hold side button ≥ 600 ms.
 
 ## 📚 Documentation
 
-- [Variant README](variants/lilygo_tlora_pager_lr1121/README.md) — build environments, pin map, UI navigation, on/off, offline map setup.
-- [Offline map tiles](variants/lilygo_tlora_pager_lr1121/MAPS.md) — how the SD-card map tiles are laid out.
+- [Variant README](variants/lilygo_tlora_pager_sx1262/README.md) — build environments, pin map, UI navigation, flashing.
+- [Offline map tiles](variants/lilygo_tlora_pager_sx1262/MAPS.md) — how to prepare SD-card map tiles.
 
-## 🌐 Built on MeshCore
+## 🌐 Credits & upstream
 
-This is a hardware variant/port of **[MeshCore](https://github.com/meshcore-dev/MeshCore)**, a
-lightweight C++ library for multi-hop LoRa packet routing. All credit for the
-underlying mesh stack goes to the MeshCore project; this repository adds the
-LilyGo T-Lora Pager (LR1121) board support and the standalone on-device UI.
-Upstream changes are periodically merged in.
+This is a port of **[CJvanSoest/meshcore-lilygo-pager-LR1121](https://github.com/CJvanSoest/meshcore-lilygo-pager-LR1121)** (LR1121 variant by CJ van Soest), which is itself built on **[MeshCore](https://github.com/meshcore-dev/MeshCore)** by Scott Powell / [rippleradios.com](https://rippleradios.com). All credit for the underlying mesh stack and pager UI foundation goes to those projects. This fork adds SX1262 radio support and the feature additions listed above.
 
 ## 📄 License
 
-Released under the **MIT License**, same as upstream MeshCore — see
-[`license.txt`](license.txt). Pager variant and UI by CJ van Soest.
+Released under the **MIT License** — see [`license.txt`](license.txt).

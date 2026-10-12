@@ -146,6 +146,9 @@ static int s_ch_menu_idx = -1;       // populated channel index
 static lv_obj_t *s_reply_popup = nullptr;
 static lv_group_t *s_reply_group = nullptr;
 static lv_obj_t *s_reply_buttons[2]; // 0=Reply, 1=Cancel
+// Reply context bar — shown above the compose counter while a reply is staged.
+static lv_obj_t *s_reply_bar = nullptr;
+static char s_reply_quote[121] = { 0 }; // "> from: text\n" prepended on send
 static uint64_t s_muted_channels = 0; // bitmask by channel_idx (runtime only)
 static lv_group_t *s_group;          // carousel tiles
 static lv_group_t *s_radio_group;    // Radio settings list rows
@@ -640,22 +643,34 @@ extern "C" void ui_input_char(char c) {
     if (c == '\n') {
       if (s_compose_len > 0) {
         bool ok = false;
+        // Build message: prepend reply quote if one is staged.
+        char full_msg[242];
+        const char *send_text;
+        if (s_reply_quote[0]) {
+          snprintf(full_msg, sizeof(full_msg), "%s%s", s_reply_quote, s_compose_buf);
+          send_text = full_msg;
+        } else {
+          send_text = s_compose_buf;
+        }
         if (s_dm_mode) {
-          if (ui_send_dm) ok = ui_send_dm(s_dm_pubkey, s_compose_buf);
+          if (ui_send_dm) ok = ui_send_dm(s_dm_pubkey, send_text);
           if (ok) chat_history_render(); // DM ring already has our own copy
         } else if (ui_send_group_text) {
-          ok = ui_send_group_text(s_chat_channel_idx, s_compose_buf);
+          ok = ui_send_group_text(s_chat_channel_idx, send_text);
           if (ok) {
-            // Show our own message in the history immediately. The wire
-            // payload is "<sender>: <msg>" — mirror that locally with a
-            // "(me)" prefix so it visually matches received messages.
+            // Show our own message in the history immediately.
             char local[120];
-            snprintf(local, sizeof(local), "(me): %s", s_compose_buf);
+            snprintf(local, sizeof(local), "(me): %s", send_text);
             chat_ring_push((uint8_t)s_chat_channel_idx, 0, 0xFF, local);
             chat_history_render();
           }
         }
         (void)ok;
+        // Always clear reply state after send attempt.
+        if (s_reply_quote[0]) {
+          s_reply_quote[0] = 0;
+          if (s_reply_bar) lv_obj_add_flag(s_reply_bar, LV_OBJ_FLAG_HIDDEN);
+        }
       }
       s_compose_buf[0] = 0;
       s_compose_len = 0;
@@ -663,6 +678,10 @@ extern "C" void ui_input_char(char c) {
       if (s_compose_len > 0) {
         s_compose_len--;
         s_compose_buf[s_compose_len] = 0;
+      } else if (s_reply_quote[0]) {
+        // Backspace on empty compose cancels the reply.
+        s_reply_quote[0] = 0;
+        if (s_reply_bar) lv_obj_add_flag(s_reply_bar, LV_OBJ_FLAG_HIDDEN);
       }
     } else {
       if (s_compose_len < (int)sizeof(s_compose_buf) - 1) {
@@ -1257,14 +1276,18 @@ static void reply_popup_btn_cb(lv_event_t *e) {
   int which = (int)(intptr_t)lv_event_get_user_data(e);
   reply_popup_hide();
   if (which == 0 && s_last_recv_from[0]) {
-    // Pre-fill compose with "> from: text\n"
-    char quote[121];
-    snprintf(quote, sizeof(quote), "> %s: %.80s\n", s_last_recv_from, s_last_recv_text);
-    size_t qlen = strlen(quote);
-    if (qlen > sizeof(s_compose_buf) - 1) qlen = sizeof(s_compose_buf) - 1;
-    memcpy(s_compose_buf, quote, qlen);
-    s_compose_buf[qlen] = 0;
-    s_compose_len = (int)qlen;
+    // Stage the quote for prepending on send; show the context bar so the
+    // user can see what they're replying to without cluttering the compose.
+    snprintf(s_reply_quote, sizeof(s_reply_quote), "> %s: %.80s\n", s_last_recv_from, s_last_recv_text);
+    if (s_reply_bar) {
+      char rbuf[80];
+      snprintf(rbuf, sizeof(rbuf), "↩ %s: %.40s", s_last_recv_from, s_last_recv_text);
+      lv_label_set_text(s_reply_bar, rbuf);
+      lv_obj_remove_flag(s_reply_bar, LV_OBJ_FLAG_HIDDEN);
+    }
+    // Keep compose empty — user types only the reply text.
+    s_compose_buf[0] = 0;
+    s_compose_len = 0;
     chat_compose_render();
   }
 }
@@ -1737,6 +1760,7 @@ static void dm_chat_view_open(const uint8_t *pub_key, const char *peer_name) {
   s_dm_peer_name[sizeof(s_dm_peer_name) - 1] = 0;
   s_compose_buf[0] = 0;
   s_compose_len = 0;
+  s_reply_quote[0] = 0;
   // Hide the DM contacts list (and the Contacts/Discovered ones in case
   // the chat is opened from those — would otherwise paint behind the
   // chat history).
@@ -1746,6 +1770,7 @@ static void dm_chat_view_open(const uint8_t *pub_key, const char *peer_name) {
   if (s_chat_scroll) lv_obj_remove_flag(s_chat_scroll, LV_OBJ_FLAG_HIDDEN);
   if (s_chat_compose) lv_obj_remove_flag(s_chat_compose, LV_OBJ_FLAG_HIDDEN);
   if (s_chat_counter) lv_obj_remove_flag(s_chat_counter, LV_OBJ_FLAG_HIDDEN);
+  if (s_reply_bar) lv_obj_add_flag(s_reply_bar, LV_OBJ_FLAG_HIDDEN);
 
   lv_label_set_text(s_subscreen_title, s_dm_peer_name);
 
@@ -1811,11 +1836,13 @@ static void chat_view_open(int channel_idx) {
   // no ring preload needed, and no cross-channel eviction can hide it.
   s_compose_buf[0] = 0;
   s_compose_len = 0;
+  s_reply_quote[0] = 0;
   // Hide the channels list while the chat is active.
   if (s_channel_list) lv_obj_add_flag(s_channel_list, LV_OBJ_FLAG_HIDDEN);
   if (s_chat_scroll) lv_obj_remove_flag(s_chat_scroll, LV_OBJ_FLAG_HIDDEN);
   if (s_chat_compose) lv_obj_remove_flag(s_chat_compose, LV_OBJ_FLAG_HIDDEN);
   if (s_chat_counter) lv_obj_remove_flag(s_chat_counter, LV_OBJ_FLAG_HIDDEN);
+  if (s_reply_bar) lv_obj_add_flag(s_reply_bar, LV_OBJ_FLAG_HIDDEN);
 
   // Title shows which channel we're chatting in.
   char title[40];
@@ -1850,6 +1877,8 @@ static void chat_view_close() {
   if (s_chat_scroll) lv_obj_add_flag(s_chat_scroll, LV_OBJ_FLAG_HIDDEN);
   if (s_chat_compose) lv_obj_add_flag(s_chat_compose, LV_OBJ_FLAG_HIDDEN);
   if (s_chat_counter) lv_obj_add_flag(s_chat_counter, LV_OBJ_FLAG_HIDDEN);
+  if (s_reply_bar) lv_obj_add_flag(s_reply_bar, LV_OBJ_FLAG_HIDDEN);
+  s_reply_quote[0] = 0;
 
   lv_indev_t *enc = tpager_lvgl_get_encoder();
   if (was_dm) {
@@ -3487,6 +3516,16 @@ static void build_ui() {
   lv_obj_set_style_text_color(s_chat_counter, lv_color_hex(PAL->text_dim), 0);
   lv_obj_align(s_chat_counter, LV_ALIGN_BOTTOM_RIGHT, -8, -46);
   lv_obj_add_flag(s_chat_counter, LV_OBJ_FLAG_HIDDEN);
+
+  // Reply context bar — shown left of counter when a reply is staged.
+  s_reply_bar = lv_label_create(s_subscreen_root);
+  lv_label_set_text(s_reply_bar, "");
+  lv_obj_set_style_text_color(s_reply_bar, lv_color_hex(PAL->accent), 0);
+  lv_obj_set_style_text_font(s_reply_bar, &lv_font_montserrat_14, 0);
+  lv_label_set_long_mode(s_reply_bar, LV_LABEL_LONG_DOT);
+  lv_obj_set_size(s_reply_bar, lv_pct(65), 18);
+  lv_obj_align(s_reply_bar, LV_ALIGN_BOTTOM_LEFT, 6, -46);
+  lv_obj_add_flag(s_reply_bar, LV_OBJ_FLAG_HIDDEN);
 
   // ---- Persistent header (always visible) ----
   // Parented to the screen itself and built AFTER s_root + s_subscreen_root

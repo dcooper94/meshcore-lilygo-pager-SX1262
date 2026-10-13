@@ -14,6 +14,7 @@
 #include <cstring>
 #include <ctime>           // gmtime_r for NL local-time / DST conversion
 #include <esp_heap_caps.h> // heap_caps_calloc / MALLOC_CAP_SPIRAM (S3.6d)
+#include <esp_random.h>    // esp_fill_random for private channel key generation
 #include <lvgl.h>
 
 bool sd_init(); // from target.cpp — mounts /sd (idempotent)
@@ -144,6 +145,14 @@ static lv_obj_t *s_ch_menu_popup;
 static lv_group_t *s_ch_menu_group;
 static lv_obj_t *s_ch_menu_buttons[4];
 static int s_ch_menu_idx = -1; // populated channel index
+
+// "+ Add channel" picker popup (Hashtag / Private / Cancel).
+static lv_obj_t *s_ch_add_picker;
+static lv_group_t *s_ch_add_picker_group;
+static lv_obj_t *s_ch_add_picker_buttons[3];
+
+// Temp name buffer used between the two private-channel add steps.
+static char s_priv_ch_name_buf[32] = { 0 };
 
 // In-chat message picker (shown on encoder short-press in chat with empty compose).
 static lv_obj_t *s_msg_picker = nullptr;
@@ -303,12 +312,14 @@ static void update_tile_badges() {
 // Special s_editing_idx value used when the text-input popup is open for
 // "add new channel". Out-of-range w.r.t. radio rows so existing
 // per-row dispatch ignores it.
-#define EDIT_IDX_NEW_CHANNEL   100
-#define EDIT_IDX_RPTR_PASSWORD 102
-#define EDIT_IDX_RPTR_VAR      103
+#define EDIT_IDX_NEW_CHANNEL      100
+#define EDIT_IDX_RPTR_PASSWORD    102
+#define EDIT_IDX_RPTR_VAR         103
+#define EDIT_IDX_NEW_PRIV_CH_NAME 104
+#define EDIT_IDX_NEW_PRIV_CH_KEY  105
 // Text-input popup for the Settings "Set time" row (manual RTC set). Same
 // out-of-range trick as EDIT_IDX_NEW_CHANNEL so radio row dispatch ignores it.
-#define EDIT_IDX_SET_TIME      101
+#define EDIT_IDX_SET_TIME         101
 
 // Chat view (S3.4 step 2/3) — opened when the user clicks an existing
 // channel row in the Messages tile. Single shared ring buffer keyed by
@@ -316,7 +327,7 @@ static void update_tile_badges() {
 // Max stored message length. MeshCore's MAX_TEXT_LEN is 160; earlier this
 // was 96 which visibly truncated longer channel messages mid-sentence. 176
 // leaves headroom for the full body plus the "sender: " prefix and a NUL.
-#define CHAT_TEXT_MAX          176
+#define CHAT_TEXT_MAX             176
 struct ChatMsg {
   uint8_t channel_idx;
   uint8_t path_len;         // hop count (0 = direct, 0xFF = unknown/routed)
@@ -388,7 +399,7 @@ static bool s_input_active = false;
 // the Scope popup (letters + digits + '-'). Allowed-char set is gated
 // per-row in ui_input_char. '\b' pops, '\n' commits, encoder click on
 // the OK widget also commits, encoder long-press cancels.
-static char s_text_buf[32] = { 0 };
+static char s_text_buf[64] = { 0 };
 static int s_text_len = 0;
 static lv_obj_t *s_text_value_label = nullptr;
 
@@ -433,7 +444,11 @@ static void radio_item_clicked(lv_event_t *e);
 static void back_long_press_event(lv_event_t *e);
 static void close_edit_popup_apply(); // referenced from ui_input_char (Enter commits)
 static void channels_list_populate(int focus_row = 0);
+static void open_add_channel_picker();
+static void open_text_entry_popup(int editing_idx, const char *title, int max_chars);
 static void open_add_channel_popup();
+static void open_add_private_channel_step1();
+static void open_add_private_channel_step2();
 static void chat_view_open(int channel_idx);
 static void chat_view_close();
 static void chat_history_render();
@@ -484,6 +499,7 @@ extern "C" void ui_apply_default_scope(const char *name) __attribute__((weak));
 extern "C" int ui_get_channel_count() __attribute__((weak));
 extern "C" bool ui_get_channel_name(int idx, char *buf, int buf_size) __attribute__((weak));
 extern "C" bool ui_add_hashtag_channel(const char *name) __attribute__((weak));
+extern "C" bool ui_add_private_channel(const char *name, const char *hex_key) __attribute__((weak));
 extern "C" bool ui_delete_channel(int populated_idx) __attribute__((weak));
 extern "C" bool ui_send_group_text(int channel_idx, const char *text) __attribute__((weak));
 extern "C" bool ui_send_self_advert(bool flood) __attribute__((weak));
@@ -803,7 +819,8 @@ extern "C" void ui_input_char(char c) {
     return;
   }
   if ((s_editing_idx == 0 || s_editing_idx == 7 || s_editing_idx == 8 ||
-       s_editing_idx == EDIT_IDX_NEW_CHANNEL) &&
+       s_editing_idx == EDIT_IDX_NEW_CHANNEL || s_editing_idx == EDIT_IDX_NEW_PRIV_CH_NAME ||
+       s_editing_idx == EDIT_IDX_NEW_PRIV_CH_KEY) &&
       s_text_value_label) {
     if (c == '\n') {
       close_edit_popup_apply();
@@ -820,11 +837,19 @@ extern "C" void ui_input_char(char c) {
       } else if (s_editing_idx == 8) { // node name — wider set
         allow = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' ||
                 c == '_';
+      } else if (s_editing_idx == EDIT_IDX_NEW_PRIV_CH_NAME) {
+        allow = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' ||
+                c == '_';
+      } else if (s_editing_idx == EDIT_IDX_NEW_PRIV_CH_KEY) {
+        allow = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
       } else { // scope or new-channel
         allow = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-';
       }
       if (!allow) return; // reject other chars silently
-      if (s_text_len < (int)sizeof(s_text_buf) - 1) {
+      int max_len = (s_editing_idx == EDIT_IDX_NEW_PRIV_CH_NAME)  ? 30
+                    : (s_editing_idx == EDIT_IDX_NEW_PRIV_CH_KEY) ? 32
+                                                                  : (int)sizeof(s_text_buf) - 1;
+      if (s_text_len < max_len) {
         s_text_buf[s_text_len++] = c;
         s_text_buf[s_text_len] = 0;
       }
@@ -1063,6 +1088,7 @@ static void enter_subscreen(int idx) {
   if (s_disc_menu_popup) lv_obj_add_flag(s_disc_menu_popup, LV_OBJ_FLAG_HIDDEN);
   if (s_con_menu_popup) lv_obj_add_flag(s_con_menu_popup, LV_OBJ_FLAG_HIDDEN);
   if (s_ch_menu_popup) lv_obj_add_flag(s_ch_menu_popup, LV_OBJ_FLAG_HIDDEN);
+  if (s_ch_add_picker) lv_obj_add_flag(s_ch_add_picker, LV_OBJ_FLAG_HIDDEN);
   if (s_input_label) lv_obj_add_flag(s_input_label, LV_OBJ_FLAG_HIDDEN);
   if (s_chat_scroll) lv_obj_add_flag(s_chat_scroll, LV_OBJ_FLAG_HIDDEN);
   if (s_chat_compose) lv_obj_add_flag(s_chat_compose, LV_OBJ_FLAG_HIDDEN);
@@ -1217,6 +1243,7 @@ static void leave_subscreen() {
   if (s_disc_menu_popup) lv_obj_add_flag(s_disc_menu_popup, LV_OBJ_FLAG_HIDDEN);
   if (s_con_menu_popup) lv_obj_add_flag(s_con_menu_popup, LV_OBJ_FLAG_HIDDEN);
   if (s_ch_menu_popup) lv_obj_add_flag(s_ch_menu_popup, LV_OBJ_FLAG_HIDDEN);
+  if (s_ch_add_picker) lv_obj_add_flag(s_ch_add_picker, LV_OBJ_FLAG_HIDDEN);
   if (s_chat_scroll) lv_obj_add_flag(s_chat_scroll, LV_OBJ_FLAG_HIDDEN);
   if (s_chat_compose) lv_obj_add_flag(s_chat_compose, LV_OBJ_FLAG_HIDDEN);
   if (s_chat_counter) lv_obj_add_flag(s_chat_counter, LV_OBJ_FLAG_HIDDEN);
@@ -1378,7 +1405,7 @@ static void channel_row_clicked(lv_event_t *e) {
   }
   int idx = (int)(intptr_t)lv_event_get_user_data(e);
   if (idx < 0) {
-    open_add_channel_popup();
+    open_add_channel_picker();
     return;
   }
   ch_menu_show(idx);
@@ -1649,10 +1676,11 @@ static void channels_list_populate(int focus_row) {
   lv_obj_t *target = nullptr;
   for (int i = 0; i < count; i++) {
     if (ui_get_channel_name && ui_get_channel_name(i, name, sizeof(name))) {
-      char with_hash[42];
-      // "Public" is the only non-hashtag channel (hardcoded PSK). Show
-      // it as-is. Everything else gets a "#" prefix for readability.
-      if (strcmp(name, "Public") == 0) {
+      char with_hash[48];
+      if (name[0] == '!') {
+        // Private channel: strip '!' prefix, show lock icon.
+        snprintf(with_hash, sizeof(with_hash), LV_SYMBOL_EYE_CLOSE " %s", name + 1);
+      } else if (strcmp(name, "Public") == 0) {
         snprintf(with_hash, sizeof(with_hash), "%s", name);
       } else {
         snprintf(with_hash, sizeof(with_hash), "#%s", name);
@@ -1665,7 +1693,22 @@ static void channels_list_populate(int focus_row) {
 }
 
 static void open_add_channel_popup() {
-  s_editing_idx = EDIT_IDX_NEW_CHANNEL;
+  open_text_entry_popup(EDIT_IDX_NEW_CHANNEL, "New channel (hashtag)", 31);
+}
+
+static void open_add_channel_picker() {
+  if (!s_ch_add_picker) return;
+  lv_obj_remove_flag(s_ch_add_picker, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_move_foreground(s_ch_add_picker);
+  lv_indev_t *enc = tpager_lvgl_get_encoder();
+  if (enc && s_ch_add_picker_group) {
+    lv_indev_set_group(enc, s_ch_add_picker_group);
+    if (s_ch_add_picker_buttons[0]) lv_group_focus_obj(s_ch_add_picker_buttons[0]);
+  }
+}
+
+static void open_text_entry_popup(int editing_idx, const char *title, int max_chars) {
+  s_editing_idx = editing_idx;
   lv_obj_remove_flag(s_edit_popup, LV_OBJ_FLAG_HIDDEN);
   if (s_edit_widget) {
     lv_obj_del(s_edit_widget);
@@ -1676,17 +1719,15 @@ static void open_add_channel_popup() {
     s_text_value_label = nullptr;
   }
   lv_group_remove_all_objs(s_edit_group);
-
   s_text_buf[0] = 0;
   s_text_len = 0;
-  lv_label_set_text(s_edit_title, "New channel (hashtag)");
-
+  lv_label_set_text(s_edit_title, title);
   s_text_value_label = lv_label_create(s_edit_popup);
   lv_obj_set_style_text_color(s_text_value_label, lv_color_hex(0xffffff), 0);
   lv_obj_set_style_text_font(s_text_value_label, &lv_font_montserrat_24, 0);
   lv_label_set_text(s_text_value_label, "_");
   lv_obj_align(s_text_value_label, LV_ALIGN_CENTER, 0, -12);
-
+  (void)max_chars;
   s_edit_widget = lv_button_create(s_edit_popup);
   lv_obj_set_size(s_edit_widget, 60, 24);
   lv_obj_align(s_edit_widget, LV_ALIGN_BOTTOM_MID, 0, -20);
@@ -1695,12 +1736,79 @@ static void open_add_channel_popup() {
   lv_obj_center(okl);
   lv_obj_add_event_cb(
       s_edit_widget, [](lv_event_t *) { close_edit_popup_apply(); }, LV_EVENT_CLICKED, nullptr);
-
   lv_group_add_obj(s_edit_group, s_edit_widget);
   lv_indev_t *enc = tpager_lvgl_get_encoder();
   if (enc) {
     lv_indev_set_group(enc, s_edit_group);
     lv_group_focus_obj(s_edit_widget);
+    lv_group_set_editing(s_edit_group, true);
+  }
+}
+
+static void open_add_private_channel_step1() {
+  open_text_entry_popup(EDIT_IDX_NEW_PRIV_CH_NAME, "Private channel name", 30);
+}
+
+static void open_add_private_channel_step2() {
+  s_editing_idx = EDIT_IDX_NEW_PRIV_CH_KEY;
+  lv_obj_remove_flag(s_edit_popup, LV_OBJ_FLAG_HIDDEN);
+  if (s_edit_widget) {
+    lv_obj_del(s_edit_widget);
+    s_edit_widget = nullptr;
+  }
+  if (s_text_value_label) {
+    lv_obj_del(s_text_value_label);
+    s_text_value_label = nullptr;
+  }
+  lv_group_remove_all_objs(s_edit_group);
+  s_text_buf[0] = 0;
+  s_text_len = 0;
+  lv_label_set_text(s_edit_title, "Channel key (32 hex)");
+
+  s_text_value_label = lv_label_create(s_edit_popup);
+  lv_obj_set_style_text_color(s_text_value_label, lv_color_hex(0xffffff), 0);
+  lv_obj_set_style_text_font(s_text_value_label, &lv_font_montserrat_16, 0);
+  lv_label_set_text(s_text_value_label, "_");
+  lv_obj_align(s_text_value_label, LV_ALIGN_CENTER, 0, -12);
+
+  // RAND button — fills the key field with 32 random uppercase hex chars.
+  lv_obj_t *rand_btn = lv_button_create(s_edit_popup);
+  lv_obj_set_size(rand_btn, 60, 24);
+  lv_obj_align(rand_btn, LV_ALIGN_BOTTOM_MID, -36, -20);
+  lv_obj_t *rl = lv_label_create(rand_btn);
+  lv_label_set_text(rl, "RAND");
+  lv_obj_center(rl);
+  lv_obj_add_event_cb(
+      rand_btn,
+      [](lv_event_t *) {
+        uint8_t rnd[16];
+        esp_fill_random(rnd, sizeof(rnd));
+        static const char hex[] = "0123456789ABCDEF";
+        for (int i = 0; i < 16; i++) {
+          s_text_buf[i * 2] = hex[rnd[i] >> 4];
+          s_text_buf[i * 2 + 1] = hex[rnd[i] & 0xf];
+        }
+        s_text_buf[32] = 0;
+        s_text_len = 32;
+        if (s_text_value_label) lv_label_set_text(s_text_value_label, s_text_buf);
+      },
+      LV_EVENT_CLICKED, nullptr);
+  lv_group_add_obj(s_edit_group, rand_btn);
+
+  s_edit_widget = lv_button_create(s_edit_popup);
+  lv_obj_set_size(s_edit_widget, 60, 24);
+  lv_obj_align(s_edit_widget, LV_ALIGN_BOTTOM_MID, 36, -20);
+  lv_obj_t *okl = lv_label_create(s_edit_widget);
+  lv_label_set_text(okl, "OK");
+  lv_obj_center(okl);
+  lv_obj_add_event_cb(
+      s_edit_widget, [](lv_event_t *) { close_edit_popup_apply(); }, LV_EVENT_CLICKED, nullptr);
+  lv_group_add_obj(s_edit_group, s_edit_widget);
+
+  lv_indev_t *enc = tpager_lvgl_get_encoder();
+  if (enc) {
+    lv_indev_set_group(enc, s_edit_group);
+    lv_group_focus_obj(rand_btn);
     lv_group_set_editing(s_edit_group, true);
   }
 }
@@ -3226,6 +3334,54 @@ static void close_edit_popup_apply() {
     return;
   }
 
+  // Step 1 of private channel add: save name and open key entry.
+  if (s_editing_idx == EDIT_IDX_NEW_PRIV_CH_NAME) {
+    if (s_text_len == 0) {
+      lv_obj_add_flag(s_edit_popup, LV_OBJ_FLAG_HIDDEN);
+      if (s_edit_group) lv_group_set_editing(s_edit_group, false);
+      if (s_channel_group) lv_group_set_editing(s_channel_group, false);
+      s_editing_idx = -1;
+      lv_indev_t *enc = tpager_lvgl_get_encoder();
+      if (enc && s_channel_group) {
+        lv_indev_set_group(enc, s_channel_group);
+        lv_group_set_editing(s_channel_group, false);
+      }
+      return;
+    }
+    memcpy(s_priv_ch_name_buf, s_text_buf, s_text_len + 1);
+    lv_obj_add_flag(s_edit_popup, LV_OBJ_FLAG_HIDDEN);
+    s_editing_idx = -1;
+    open_add_private_channel_step2();
+    return;
+  }
+
+  // Step 2 of private channel add: validate hex key and call bridge.
+  if (s_editing_idx == EDIT_IDX_NEW_PRIV_CH_KEY) {
+    bool valid = (s_text_len == 32);
+    if (valid) {
+      for (int i = 0; i < 32 && valid; i++) {
+        char x = s_text_buf[i];
+        valid = (x >= '0' && x <= '9') || (x >= 'a' && x <= 'f') || (x >= 'A' && x <= 'F');
+      }
+    }
+    if (valid && s_priv_ch_name_buf[0] && ui_add_private_channel) {
+      ui_add_private_channel(s_priv_ch_name_buf, s_text_buf);
+    }
+    s_priv_ch_name_buf[0] = 0;
+    lv_obj_add_flag(s_edit_popup, LV_OBJ_FLAG_HIDDEN);
+    if (s_edit_group) lv_group_set_editing(s_edit_group, false);
+    if (s_channel_group) lv_group_set_editing(s_channel_group, false);
+    s_editing_idx = -1;
+    channels_list_populate(1);
+    lv_indev_t *enc = tpager_lvgl_get_encoder();
+    if (enc && s_channel_group) {
+      lv_indev_set_group(enc, s_channel_group);
+      lv_group_set_editing(s_channel_group, false);
+    }
+    s_skip_next_click = true;
+    return;
+  }
+
   // Special case: manual clock set from the Settings list. Reads the field
   // editor's NL-local values, converts to a UTC epoch and writes the RTC,
   // then returns the user to the Settings list.
@@ -4402,6 +4558,54 @@ static void build_ui() {
         LV_EVENT_CLICKED, nullptr);
   }
 
+  // "+ Add channel" type picker (Hashtag / Private / Cancel).
+  s_ch_add_picker = lv_obj_create(scr);
+  lv_obj_set_size(s_ch_add_picker, lv_pct(80), 130);
+  lv_obj_center(s_ch_add_picker);
+  lv_obj_set_style_bg_color(s_ch_add_picker, lv_color_hex(PAL->surface), 0);
+  lv_obj_set_style_border_width(s_ch_add_picker, 2, 0);
+  lv_obj_set_style_border_color(s_ch_add_picker, lv_color_hex(0xFAA61A), 0);
+  lv_obj_set_style_radius(s_ch_add_picker, 8, 0);
+  lv_obj_set_style_text_color(s_ch_add_picker, lv_color_hex(0xffffff), 0);
+  lv_obj_set_flex_flow(s_ch_add_picker, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(s_ch_add_picker, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER,
+                        LV_FLEX_ALIGN_CENTER);
+  lv_obj_add_flag(s_ch_add_picker, LV_OBJ_FLAG_HIDDEN);
+
+  s_ch_add_picker_group = lv_group_create();
+  static const char *add_picker_labels[3] = { "Hashtag (#)", "Private (key)", "Cancel" };
+  for (int b = 0; b < 3; b++) {
+    s_ch_add_picker_buttons[b] = lv_button_create(s_ch_add_picker);
+    lv_obj_set_size(s_ch_add_picker_buttons[b], lv_pct(80), 26);
+    style_popup_button(s_ch_add_picker_buttons[b]);
+    lv_obj_t *lbl = lv_label_create(s_ch_add_picker_buttons[b]);
+    lv_label_set_text(lbl, add_picker_labels[b]);
+    lv_obj_center(lbl);
+    lv_group_add_obj(s_ch_add_picker_group, s_ch_add_picker_buttons[b]);
+    lv_obj_add_event_cb(
+        s_ch_add_picker_buttons[b],
+        [](lv_event_t *e) {
+          lv_obj_t *tgt = (lv_obj_t *)lv_event_get_target(e);
+          int which = -1;
+          for (int i = 0; i < 3; i++)
+            if (s_ch_add_picker_buttons[i] == tgt) which = i;
+          lv_obj_add_flag(s_ch_add_picker, LV_OBJ_FLAG_HIDDEN);
+          lv_indev_t *enc = tpager_lvgl_get_encoder();
+          if (which == 0) {
+            open_add_channel_popup();
+          } else if (which == 1) {
+            open_add_private_channel_step1();
+          } else {
+            // Cancel — return encoder focus to the channel list.
+            if (enc && s_channel_group) {
+              lv_indev_set_group(enc, s_channel_group);
+              lv_group_set_editing(s_channel_group, false);
+            }
+          }
+        },
+        LV_EVENT_CLICKED, nullptr);
+  }
+
   // ---- Repeaters tile (S3.7) -----------------------------------------------
 
   // Repeaters list (mirrors discovered_list layout)
@@ -4591,7 +4795,8 @@ static void apply_theme() {
   // Popups (built once): surface fill + accent border. Their body text must be
   // the palette's text colour, not the old hard-white (invisible on a light
   // surface).
-  lv_obj_t *popups[] = { s_toast_popup, s_edit_popup, s_disc_menu_popup, s_con_menu_popup, s_ch_menu_popup };
+  lv_obj_t *popups[] = { s_toast_popup,    s_edit_popup,    s_disc_menu_popup,
+                         s_con_menu_popup, s_ch_menu_popup, s_ch_add_picker };
   for (lv_obj_t *p : popups) {
     if (!p) continue;
     lv_obj_set_style_bg_color(p, lv_color_hex(PAL->surface), 0);

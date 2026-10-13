@@ -885,6 +885,35 @@ extern "C" void ui_apply_default_scope(const char* name) {
   the_mesh.savePrefs();
 }
 
+// Repeater management bridges (S3.7). Forward-declared with weak attribute in
+// UITask.cpp; implementations call the new uiSendLogin/uiSendBinaryReq methods
+// added to MyMesh.h so the mesh layer owns all pending-state bookkeeping.
+// Radio-protocol request types (match simple_repeater/handleRequest constants)
+static const uint8_t kReqGetStatus    = 0x01;  // REQ_TYPE_GET_STATUS
+static const uint8_t kReqGetOwnerInfo = 0x07;  // REQ_TYPE_GET_OWNER_INFO (firmware >= v2)
+extern "C" bool ui_repeater_login(const uint8_t *pub_key, const char *pw) {
+  if (!pub_key || !pw) return false;
+  return the_mesh.uiSendLogin(pub_key, pw);
+}
+
+// get_vars fires REQ_TYPE_GET_OWNER_INFO (firmware ver, node name, owner info).
+extern "C" bool ui_repeater_get_vars(const uint8_t *pub_key) {
+  if (!pub_key) return false;
+  return the_mesh.uiSendBinaryReq(pub_key, kReqGetOwnerInfo, nullptr, 0, 0);
+}
+
+extern "C" bool ui_repeater_set_var(const uint8_t *pub_key, const char *name,
+                                    const char *value) {
+  (void)pub_key; (void)name; (void)value;
+  return false; // set-var not supported over radio in this firmware
+}
+
+// get_stats fires REQ_TYPE_GET_STATUS (battery, uptime, packet counts).
+extern "C" bool ui_repeater_get_stats(const uint8_t *pub_key) {
+  if (!pub_key) return false;
+  return the_mesh.uiSendBinaryReq(pub_key, kReqGetStatus, nullptr, 0, 2);
+}
+
 void halt() {
   while (1) ;
 }

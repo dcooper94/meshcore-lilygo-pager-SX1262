@@ -162,6 +162,7 @@ protected:
 
   void clearPendingReqs() {
     pending_login = pending_status = pending_telemetry = pending_discovery = pending_req = 0;
+    ui_pending_login = ui_pending_req = 0;
   }
 
 public:
@@ -302,6 +303,16 @@ public:
   // populateContactFromAdvert sets the basics, but a path is needed for
   // sendDirect; sendMessage falls back to flood routing if path is
   // OUT_PATH_UNKNOWN).
+  // Variant-UI repeater login (S3.7). Constructs a ContactInfo from pub_key
+  // (flood-routed if not in contacts table) and calls sendLogin(). Returns
+  // false if the send fails.
+  bool uiSendLogin(const uint8_t* pub_key, const char* pw);
+  // Variant-UI binary request to a remote repeater. cmd_byte is one of the
+  // CMD_* values; extra + extra_len are appended. req_type tags the response
+  // so the UI callback knows which handler to fire (0=vars, 1=set_var, 2=stats).
+  bool uiSendBinaryReq(const uint8_t* pub_key, uint8_t cmd_byte,
+                       const uint8_t* extra, uint8_t extra_len, uint8_t req_type);
+
   bool uiSendDm(const uint8_t* pub_key, const char* text) {
     for (int i = 0; i < num_contacts; i++) {
       if (memcmp(contacts[i].id.pub_key, pub_key, PUB_KEY_SIZE) == 0) {
@@ -357,6 +368,12 @@ private:
   uint32_t pending_status;
   uint32_t pending_telemetry, pending_discovery;   // pending _TELEMETRY_REQ
   uint32_t pending_req;   // pending _BINARY_REQ
+  // UI-initiated repeater management (S3.7) — separate from serial-initiated
+  uint32_t ui_pending_login;
+  uint8_t  ui_pending_login_key[32];
+  uint32_t ui_pending_req;
+  uint8_t  ui_pending_req_key[32];
+  uint8_t  ui_pending_req_type;  // 0=get_vars 1=set_var 2=get_stats
   BaseSerialInterface *_serial;
   AbstractUITask* _ui;
 

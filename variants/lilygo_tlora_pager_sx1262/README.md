@@ -1,10 +1,10 @@
-# LilyGo T-Lora Pager (LR1121) — MeshCore variant
+# LilyGo T-LoRa Pager (SX1262) - MeshCore variant
 
-Multi-band T-Pager port for MeshCore. The LR1121 variant of the Pager
-ships with the multi-band Semtech LR1121 radio (sub-GHz + 2.4 GHz);
-this folder also covers the rest of the on-board hardware (ST7796 IPS
-display, TCA8418 keyboard, rotary encoder, AXP-style PMU, BQ27220 fuel
-gauge, MicroNMEA GPS, XL9555 IO expander).
+MeshCore firmware for the LilyGo T-LoRa Pager with the Semtech SX1262
+sub-GHz radio. This folder covers all SX1262-specific code and the
+on-board hardware: ST7796 IPS display, TCA8418 keyboard, rotary encoder,
+BQ25896 charger/PMU, BQ27220 fuel gauge, MicroNMEA GPS, XL9555 IO
+expander, ES8311 audio.
 
 ## Button layout
 
@@ -12,9 +12,9 @@ Three buttons sit along the bottom edge of the Pager (left to right):
 
 | # | Label | GPIO | Behaviour |
 |---|-------|------|-----------|
-| 1 | RST | — (CHIP_PU) | Hard reset. Hardwired — not programmable. |
-| 2 | BOOT | GPIO 0 | **Short press:** toggle sound alerts on/off (toast + top-bar icon). **Long press (≥ 600 ms):** turn screen off. Pressing while screen is off wakes the display. |
-| 3 | PWR | — (BQ25896) | Powers the device on from off. Hardwired to PMU — not programmable. |
+| 1 | RST | n/a (CHIP_PU) | Hard reset. Hardwired, not programmable. |
+| 2 | BOOT | GPIO 0 | **Short press:** toggle sound alerts on/off (toast + top-bar icon). **Long press (>=600 ms):** turn screen off. Pressing while screen is off wakes the display. |
+| 3 | PWR | n/a (BQ25896) | Powers the device on from off. Hardwired to PMU, not programmable. |
 
 ## Powering the device on and off
 
@@ -26,14 +26,13 @@ Three buttons sit along the bottom edge of the Pager (left to right):
 * The 600 ms encoder hold is reserved for the "back" gesture inside
   the LVGL UI. Only ≥ 3 s actually powers the device down.
 
-## Build environments
+## Build environment
 
 | env name | purpose | based on |
 |---|---|---|
-| `T_LoRa_Pager_LR1121_repeater` | full-featured relay node with a thin status UI + chat compose | `examples/simple_repeater` |
-| `T_LoRa_Pager_LR1121_companion_radio_usb` | standalone client with LVGL tile-carousel UI (LilyGo-demo style) | `examples/companion_radio`, with this folder's `UITask.cpp` replacing the stock `ui-new/UITask.cpp` |
+| `T_LoRa_Pager_SX1262_companion_radio_usb` | standalone client with LVGL tile-carousel UI | `examples/companion_radio`, with this folder's `UITask.cpp` replacing the stock `ui-new/UITask.cpp` |
 
-Both pull in `helpers/ui/LGFXDisplay.cpp` and the variant's own
+Pulls in `helpers/ui/LGFXDisplay.cpp` and the variant's own
 `TPagerST7796Display.h`, `target.cpp`, `TPagerLVGL.cpp` and `UITask.cpp`.
 
 ## Navigation (companion build, LVGL UI)
@@ -56,7 +55,7 @@ also ensures our `UITask.h` shadows the upstream one).
 
 Mirrors `Xinyuan-LilyGO/LilyGoLib-PlatformIO/variants/lilygo_tlora_pager/pins_arduino.h`.
 
-- LoRa (LR1121): `CS=36 IRQ=14 RST=47 BUSY=48` on the shared SPI bus
+- LoRa (SX1262): `CS=36 IRQ=14 RST=47 BUSY=48` on the shared SPI bus
   (`SCLK=35 MOSI=34 MISO=33`).
 - Display (ST7796): `CS=38 DC=37 BL=42`. Panel mounted 180° (offset
   rotation 2); LGFXDisplay applies +90° on top, so the effective layout

@@ -2,10 +2,10 @@
 
 ## Branch strategy
 
-- `main` — stable, released code only. Never commit directly.
-- `feature/<short-slug>` — new features (e.g. `feature/reply-and-path-info`)
-- `fix/<short-slug>` — bug fixes (e.g. `fix/backlight-override`)
-- `chore/<short-slug>` — non-code changes: docs, deps, CI (e.g. `chore/update-readme`)
+- `main` - stable, released code only. Never commit directly.
+- `feature/<short-slug>` - new features (e.g. `feature/reply-and-path-info`)
+- `fix/<short-slug>` - bug fixes (e.g. `fix/backlight-override`)
+- `chore/<short-slug>` - non-code changes: docs, deps, CI (e.g. `chore/update-readme`)
 
 ## Making a change
 
@@ -16,7 +16,7 @@
      --label "bug"        # or "enhancement" for features
      --body "..."
    ```
-   One issue per branch. Note the issue number — you'll need it for the PR.
+   One issue per branch. Note the issue number; you will need it for the PR.
 
 2. **Create a branch** from `main`, named after the issue:
    ```bash
@@ -58,12 +58,15 @@
 6. **Merge** the PR on GitHub (squash or merge commit, your choice). GitHub will
    auto-close the linked issue.
 
-7. **Release** — optional, can batch multiple merged PRs. Cut one when there
+7. **Release** - optional, can batch multiple merged PRs. Cut one when there
    is at least one user-visible change worth shipping. Chore/doc-only PRs do
    not need their own release; batch them with the next feature or fix.
-   Before releasing, run `clang-format --style=file -i` on any changed
-   `*.cpp`/`*.h` files in `variants/lilygo_tlora_pager_sx1262/` (excluding
-   `lv_conf.h`) so the format-check passes on the release commit.
+   Before releasing:
+   - Run `clang-format --style=file -i` on any changed `*.cpp`/`*.h` files
+     in `variants/lilygo_tlora_pager_sx1262/` (excluding `lv_conf.h`) so the
+     format-check passes on the release commit.
+   - Update `variants/lilygo_tlora_pager_sx1262/README.md` to reflect any new
+     features, changed button behaviour, or hardware notes added in this batch.
    ```bash
    git checkout main && git pull personal main
    pio run -e T_LoRa_Pager_SX1262_companion_radio_usb   # build release firmware
@@ -83,7 +86,7 @@
 
 ## Versioning
 
-`vMAJOR.MINOR.PATCH` — increment:
+`vMAJOR.MINOR.PATCH`:
 - MAJOR: breaking change to flash layout or NVS schema (requires full reflash)
 - MINOR: new user-visible feature
 - PATCH: bug fix, docs, or power/performance improvement
@@ -128,7 +131,7 @@ python -m esptool --chip esp32s3 --port /dev/ttyACM0 --baud 115200 \
 | Path | Purpose |
 |------|---------|
 | `variants/lilygo_tlora_pager_sx1262/` | All SX1262-specific code |
-| `examples/companion_radio/` | Shared MeshCore app (upstream — minimise changes) |
+| `examples/companion_radio/` | Shared MeshCore app (upstream; minimise changes) |
 | `/tmp/tpager-firmware/` | Staging dir for release zip |
 | `/tmp/tpager-sx1262-firmware.zip` | Distribution zip (update after every release build) |
 

@@ -1,22 +1,23 @@
-#include <Arduino.h>   // needed for PlatformIO
-#include <Mesh.h>
 #include "MyMesh.h"
+
+#include <Arduino.h> // needed for PlatformIO
+#include <Mesh.h>
 #if defined(ESP_PLATFORM)
-#include <esp_heap_caps.h>  // heap_caps_calloc / MALLOC_CAP_SPIRAM
+#include <esp_heap_caps.h> // heap_caps_calloc / MALLOC_CAP_SPIRAM
 #else
 // Non-ESP companion targets (nRF52/RP2040/STM32) have no PSRAM/heap_caps API —
 // fall back to plain calloc so the shared discovered/DM buffers still build.
 #include <stdlib.h>
 #define MALLOC_CAP_SPIRAM 0
-#define MALLOC_CAP_8BIT 0
-static inline void* heap_caps_calloc(size_t n, size_t sz, uint32_t caps) {
+#define MALLOC_CAP_8BIT   0
+static inline void *heap_caps_calloc(size_t n, size_t sz, uint32_t caps) {
   (void)caps;
   return calloc(n, sz);
 }
 #endif
 
 // Believe it or not, this std C function is busted on some platforms!
-static uint32_t _atoi(const char* sp) {
+static uint32_t _atoi(const char *sp) {
   uint32_t n = 0;
   while (*sp && *sp >= '0' && *sp <= '9') {
     n *= 10;
@@ -31,87 +32,88 @@ MultiSerialInterface interface_manager;
 
 // include bluetooth interface
 #if defined(BLE_PIN_CODE)
-  #ifdef ESP32
-    // include esp32 bluetooth interface
-    #include <helpers/esp32/SerialBLEInterface.h>
-    SerialBLEInterface bluetooth_interface;
-  #elif defined(NRF52_PLATFORM)
-    // include nrf52 bluetooth interface
-    #include <helpers/nrf52/SerialBLEInterface.h>
-    SerialBLEInterface bluetooth_interface;
-  #else
-    #error "SerialBLEInterface is not defined for this platform"
-  #endif
+#ifdef ESP32
+// include esp32 bluetooth interface
+#include <helpers/esp32/SerialBLEInterface.h>
+SerialBLEInterface bluetooth_interface;
+#elif defined(NRF52_PLATFORM)
+// include nrf52 bluetooth interface
+#include <helpers/nrf52/SerialBLEInterface.h>
+SerialBLEInterface bluetooth_interface;
+#else
+#error "SerialBLEInterface is not defined for this platform"
+#endif
 #endif
 
 // include wifi interface
 #ifdef WIFI_SSID
-  #ifndef TCP_PORT
-    #define TCP_PORT 5000
-  #endif
-  #ifdef ESP32
-    // include esp32 wifi interface
-    #include <helpers/esp32/SerialWifiInterface.h>
-    SerialWifiInterface wifi_interface;
-  #else
-    #error "SerialWifiInterface is not defined for this platform"
-  #endif
+#ifndef TCP_PORT
+#define TCP_PORT 5000
+#endif
+#ifdef ESP32
+// include esp32 wifi interface
+#include <helpers/esp32/SerialWifiInterface.h>
+SerialWifiInterface wifi_interface;
+#else
+#error "SerialWifiInterface is not defined for this platform"
+#endif
 #endif
 
 // include usb interface
 #if defined(ENABLE_USB_INTERFACE)
-  #include <helpers/ArduinoSerialInterface.h>
-  ArduinoSerialInterface usb_serial_interface;
+#include <helpers/ArduinoSerialInterface.h>
+ArduinoSerialInterface usb_serial_interface;
 #endif
 
 // include ethernet interface
 #if defined(ETHERNET_ENABLED)
-  #include <helpers/ethernet/EthernetInterface.h>
-  ETHERNET_CLASS ethernet_interface;
+#include <helpers/ethernet/EthernetInterface.h>
+ETHERNET_CLASS ethernet_interface;
 #endif
 
 // include hardware serial interface
 #if defined(SERIAL_RX)
-  #include <helpers/ArduinoSerialInterface.h>
-  ArduinoSerialInterface hardware_serial_interface;
-  HardwareSerial companion_serial(1);
+#include <helpers/ArduinoSerialInterface.h>
+ArduinoSerialInterface hardware_serial_interface;
+HardwareSerial companion_serial(1);
 #endif
 
 // platform file system
 #if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
-  #include <InternalFileSystem.h>
-  #if defined(QSPIFLASH)
-    #include <CustomLFS_QSPIFlash.h>
-    DataStore store(InternalFS, QSPIFlash, rtc_clock);
-  #else
-    #if defined(EXTRAFS)
-      #include <CustomLFS.h>
-      CustomLFS ExtraFS(0xD4000, 0x19000, 128);
-      DataStore store(InternalFS, ExtraFS, rtc_clock);
-    #else
-      DataStore store(InternalFS, rtc_clock);
-    #endif
-  #endif
+#include <InternalFileSystem.h>
+#if defined(QSPIFLASH)
+#include <CustomLFS_QSPIFlash.h>
+DataStore store(InternalFS, QSPIFlash, rtc_clock);
+#else
+#if defined(EXTRAFS)
+#include <CustomLFS.h>
+CustomLFS ExtraFS(0xD4000, 0x19000, 128);
+DataStore store(InternalFS, ExtraFS, rtc_clock);
+#else
+DataStore store(InternalFS, rtc_clock);
+#endif
+#endif
 #elif defined(RP2040_PLATFORM)
-  #include <LittleFS.h>
-  DataStore store(LittleFS, rtc_clock);
+#include <LittleFS.h>
+DataStore store(LittleFS, rtc_clock);
 #elif defined(ESP32)
-  #include <SPIFFS.h>
-  DataStore store(SPIFFS, rtc_clock);
+#include <SPIFFS.h>
+DataStore store(SPIFFS, rtc_clock);
 #endif
 
 /* GLOBAL OBJECTS */
 #ifdef DISPLAY_CLASS
-  #include "UITask.h"
-  UITask ui_task(&board, &interface_manager);
+#include "UITask.h"
+UITask ui_task(&board, &interface_manager);
 #endif
 
 StdRNG fast_rng;
 SimpleMeshTables tables;
 MyMesh the_mesh(radio_driver, fast_rng, rtc_clock, tables, store
-   #ifdef DISPLAY_CLASS
-      , &ui_task
-   #endif
+#ifdef DISPLAY_CLASS
+                ,
+                &ui_task
+#endif
 );
 
 /* END GLOBAL OBJECTS */
@@ -130,7 +132,7 @@ MyMesh the_mesh(radio_driver, fast_rng, rtc_clock, tables, store
 void radio_set_params(float freq, float bw, uint8_t sf, uint8_t cr) __attribute__((weak));
 void radio_set_tx_power(int8_t dbm) __attribute__((weak));
 extern "C" void ui_apply_radio_changes() {
-  auto* p = the_mesh.getNodePrefs();
+  auto *p = the_mesh.getNodePrefs();
   if (radio_set_params) radio_set_params(p->freq, p->bw, p->sf, p->cr);
   if (radio_set_tx_power) radio_set_tx_power(p->tx_power_dbm);
   radio_driver.setRxBoostedGainMode(p->rx_boosted_gain);
@@ -144,12 +146,12 @@ extern "C" void ui_apply_radio_changes() {
 // leaky-bucket "remaining" derivative, which refilled back to 0 within
 // seconds of a TX — confusing on a UI that refreshes at 1 Hz.
 extern "C" int ui_get_duty_cycle_used_tenths() {
-  auto* p = the_mesh.getNodePrefs();
+  auto *p = the_mesh.getNodePrefs();
   float duty_cycle = 1.0f / (1.0f + p->airtime_factor);
   unsigned long max_budget = (unsigned long)(3600000UL * duty_cycle);
   if (max_budget == 0) return 0;
   unsigned long used = the_mesh.getTotalAirTime();
-  if (used > max_budget) used = max_budget;        // cap at 100%
+  if (used > max_budget) used = max_budget; // cap at 100%
   return (int)((used * 1000UL) / max_budget);
 }
 
@@ -157,13 +159,13 @@ extern "C" int ui_get_duty_cycle_used_tenths() {
 // (1 ms resolution so even a single 80-200 ms advert shifts the
 // display) and MAX in seconds (matches the per-hour quota in human
 // units). UI formats `X.Xs / Ys`.
-extern "C" void ui_get_duty_cycle_seconds(int* used_ms, int* max_s) {
-  auto* p = the_mesh.getNodePrefs();
+extern "C" void ui_get_duty_cycle_seconds(int *used_ms, int *max_s) {
+  auto *p = the_mesh.getNodePrefs();
   float duty_cycle = 1.0f / (1.0f + p->airtime_factor);
   unsigned long max_budget = (unsigned long)(3600000UL * duty_cycle);
   unsigned long used = the_mesh.getTotalAirTime();
   if (used_ms) *used_ms = (int)used;
-  if (max_s)   *max_s   = (int)(max_budget / 1000UL);
+  if (max_s) *max_s = (int)(max_budget / 1000UL);
 }
 
 // Channel bridges for the variant UI.
@@ -174,18 +176,17 @@ extern "C" void ui_get_duty_cycle_seconds(int* used_ms, int* max_s) {
 // `inline`, so a second TU including it triggers multiple-definition
 // link errors). This is a tiny self-contained variant that suffices
 // for our 128-bit channel secrets.
-static void b64_encode_16(const uint8_t* in, char* out) {
-  static const char alph[] =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+static void b64_encode_16(const uint8_t *in, char *out) {
+  static const char alph[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
   int oi = 0;
-  for (int i = 0; i < 15; i += 3) {     // 5 full triplets
-    uint32_t t = ((uint32_t)in[i] << 16) | ((uint32_t)in[i+1] << 8) | in[i+2];
+  for (int i = 0; i < 15; i += 3) { // 5 full triplets
+    uint32_t t = ((uint32_t)in[i] << 16) | ((uint32_t)in[i + 1] << 8) | in[i + 2];
     out[oi++] = alph[(t >> 18) & 0x3F];
     out[oi++] = alph[(t >> 12) & 0x3F];
-    out[oi++] = alph[(t >>  6) & 0x3F];
+    out[oi++] = alph[(t >> 6) & 0x3F];
     out[oi++] = alph[t & 0x3F];
   }
-  uint32_t s = (uint32_t)in[15] << 16;  // trailing byte
+  uint32_t s = (uint32_t)in[15] << 16; // trailing byte
   out[oi++] = alph[(s >> 18) & 0x3F];
   out[oi++] = alph[(s >> 12) & 0x3F];
   out[oi++] = '=';
@@ -204,7 +205,7 @@ extern "C" int ui_get_channel_count() {
 
 // Returns true if a channel with that index exists; fills name buf.
 // `idx` indexes only the populated channels (i.e., skips empty slots).
-extern "C" bool ui_get_channel_name(int idx, char* buf, int buf_size) {
+extern "C" bool ui_get_channel_name(int idx, char *buf, int buf_size) {
   ChannelDetails ch;
   int seen = 0;
   for (int i = 0; i < MAX_GROUP_CHANNELS; i++) {
@@ -235,13 +236,12 @@ extern "C" bool ui_get_channel_name(int idx, char* buf, int buf_size) {
 // any subsequent addChannel call overwrites slot 1 regardless of which
 // channels are already persisted there. Walking the table for an empty
 // name slot is the deterministic fix.
-extern "C" bool ui_add_hashtag_channel(const char* name) {
+extern "C" bool ui_add_hashtag_channel(const char *name) {
   if (!name || !name[0]) return false;
   char hashtagged[40];
   snprintf(hashtagged, sizeof(hashtagged), "#%s", name);
   uint8_t secret[16];
-  mesh::Utils::sha256(secret, 16,
-                      (const uint8_t*)hashtagged, strlen(hashtagged));
+  mesh::Utils::sha256(secret, 16, (const uint8_t *)hashtagged, strlen(hashtagged));
   if (!the_mesh.uiAddHashtagChannel(name, secret)) return false;
   the_mesh.uiSaveChannels();
   return true;
@@ -249,6 +249,29 @@ extern "C" bool ui_add_hashtag_channel(const char* name) {
 
 extern "C" bool ui_delete_channel(int populated_idx) {
   if (!the_mesh.uiDeleteChannel(populated_idx)) return false;
+  the_mesh.uiSaveChannels();
+  return true;
+}
+
+// Add a private channel with a user-supplied secret. hex_key must be exactly
+// 32 uppercase or lowercase hex characters representing 16 bytes. The name is
+// stored with a '!' prefix so the UI can show a lock icon. Returns false if
+// the table is full, the name is empty, or hex_key has the wrong format.
+extern "C" bool ui_add_private_channel(const char *name, const char *hex_key) {
+  if (!name || !name[0] || !hex_key || strlen(hex_key) != 32) return false;
+  uint8_t secret[16];
+  for (int i = 0; i < 16; i++) {
+    auto nibble = [](char h) -> uint8_t {
+      if (h >= '0' && h <= '9') return (uint8_t)(h - '0');
+      if (h >= 'a' && h <= 'f') return (uint8_t)(h - 'a' + 10);
+      if (h >= 'A' && h <= 'F') return (uint8_t)(h - 'A' + 10);
+      return 0;
+    };
+    secret[i] = (uint8_t)((nibble(hex_key[i * 2]) << 4) | nibble(hex_key[i * 2 + 1]));
+  }
+  char prefixed[34];
+  snprintf(prefixed, sizeof(prefixed), "!%s", name);
+  if (!the_mesh.uiAddHashtagChannel(prefixed, secret)) return false;
   the_mesh.uiSaveChannels();
   return true;
 }
@@ -261,11 +284,11 @@ extern "C" bool ui_send_self_advert(bool flood) {
 }
 
 // Set the pager's node_name (Settings tile rename field) and persist.
-extern "C" void ui_set_node_name(const char* name) {
+extern "C" void ui_set_node_name(const char *name) {
   the_mesh.uiSetNodeName(name);
 }
 
-extern "C" const char* ui_get_node_name() {
+extern "C" const char *ui_get_node_name() {
   return the_mesh.getNodePrefs()->node_name;
 }
 
@@ -281,15 +304,15 @@ extern "C" const char* ui_get_node_name() {
 #include <helpers/ContactInfo.h>
 
 struct UiSigEntry {
-  uint8_t  prefix[8];     // first 8 bytes of pub_key
-  int8_t   snr_q;
-  int16_t  rssi;
-  uint32_t last_ms;       // millis() at last update — used for LRU eviction
+  uint8_t prefix[8]; // first 8 bytes of pub_key
+  int8_t snr_q;
+  int16_t rssi;
+  uint32_t last_ms; // millis() at last update — used for LRU eviction
 };
 static const int UI_SIG_CACHE = 64;
 static UiSigEntry s_sig_cache[UI_SIG_CACHE];
 
-static UiSigEntry* sig_find(const uint8_t* pub_key) {
+static UiSigEntry *sig_find(const uint8_t *pub_key) {
   for (int i = 0; i < UI_SIG_CACHE; i++) {
     if (s_sig_cache[i].last_ms == 0) continue;
     if (memcmp(s_sig_cache[i].prefix, pub_key, 8) == 0) return &s_sig_cache[i];
@@ -297,12 +320,12 @@ static UiSigEntry* sig_find(const uint8_t* pub_key) {
   return nullptr;
 }
 
-static UiSigEntry* sig_allocate(const uint8_t* pub_key) {
+static UiSigEntry *sig_allocate(const uint8_t *pub_key) {
   // Reuse a matching entry first (paranoia — sig_find should have hit).
-  UiSigEntry* hit = sig_find(pub_key);
+  UiSigEntry *hit = sig_find(pub_key);
   if (hit) return hit;
   // Else find empty / oldest entry (LRU by last_ms).
-  UiSigEntry* victim = &s_sig_cache[0];
+  UiSigEntry *victim = &s_sig_cache[0];
   uint32_t oldest = victim->last_ms;
   for (int i = 1; i < UI_SIG_CACHE; i++) {
     if (s_sig_cache[i].last_ms == 0) {
@@ -318,24 +341,24 @@ static UiSigEntry* sig_allocate(const uint8_t* pub_key) {
   return victim;
 }
 
-extern "C" void ui_on_advert_received(const uint8_t* pub_key, float snr, float rssi) {
-  UiSigEntry* e = sig_allocate(pub_key);
-  e->snr_q   = (int8_t)(snr * 4.0f);
-  e->rssi    = (int16_t)rssi;
-  e->last_ms = millis() ? millis() : 1;     // 0 reserved as "empty"
+extern "C" void ui_on_advert_received(const uint8_t *pub_key, float snr, float rssi) {
+  UiSigEntry *e = sig_allocate(pub_key);
+  e->snr_q = (int8_t)(snr * 4.0f);
+  e->rssi = (int16_t)rssi;
+  e->last_ms = millis() ? millis() : 1; // 0 reserved as "empty"
 }
 
 struct UiContact {
-  char     name[32];
-  uint8_t  type;            // ADV_TYPE_*
-  int32_t  gps_lat;         // x10^6
-  int32_t  gps_lon;
-  uint32_t last_advert;     // their clock (epoch seconds)
-  int8_t   snr_q;           // SNR * 4 (or 0x80 / -128 = unknown)
-  int16_t  rssi;            // dBm (or 0 = unknown)
-  uint8_t  pub_key[32];     // S3.6c: needed for toggle-favorite + DM thread lookup
-  uint8_t  flags;           // S3.6c: bit 0 = favorite
-  uint8_t  path_len;        // S3.6b: hop count from Discovered entries (0 = direct)
+  char name[32];
+  uint8_t type;    // ADV_TYPE_*
+  int32_t gps_lat; // x10^6
+  int32_t gps_lon;
+  uint32_t last_advert; // their clock (epoch seconds)
+  int8_t snr_q;         // SNR * 4 (or 0x80 / -128 = unknown)
+  int16_t rssi;         // dBm (or 0 = unknown)
+  uint8_t pub_key[32];  // S3.6c: needed for toggle-favorite + DM thread lookup
+  uint8_t flags;        // S3.6c: bit 0 = favorite
+  uint8_t path_len;     // S3.6b: hop count from Discovered entries (0 = direct)
 };
 
 // Contacts tile (S3.6c) shows favorites ONLY. The full contact list is
@@ -352,7 +375,7 @@ extern "C" int ui_get_contact_count() {
 }
 
 // Indexed view across the favorites-only subset.
-extern "C" bool ui_get_contact_info(int idx, UiContact* out) {
+extern "C" bool ui_get_contact_info(int idx, UiContact *out) {
   if (!out) return false;
   int seen = 0;
   for (uint32_t i = 0; i < MAX_CONTACTS; i++) {
@@ -363,15 +386,15 @@ extern "C" bool ui_get_contact_info(int idx, UiContact* out) {
     if (seen == idx) {
       memset(out, 0, sizeof(*out));
       StrHelper::strncpy(out->name, ci.name, sizeof(out->name));
-      out->type        = ci.type;
-      out->gps_lat     = ci.gps_lat;
-      out->gps_lon     = ci.gps_lon;
+      out->type = ci.type;
+      out->gps_lat = ci.gps_lat;
+      out->gps_lon = ci.gps_lon;
       out->last_advert = ci.last_advert_timestamp;
-      UiSigEntry* sig  = sig_find(ci.id.pub_key);
-      out->snr_q       = sig ? sig->snr_q : (int8_t)-128;
-      out->rssi        = sig ? sig->rssi  : (int16_t)0;
+      UiSigEntry *sig = sig_find(ci.id.pub_key);
+      out->snr_q = sig ? sig->snr_q : (int8_t)-128;
+      out->rssi = sig ? sig->rssi : (int16_t)0;
       memcpy(out->pub_key, ci.id.pub_key, 32);
-      out->flags       = ci.flags;
+      out->flags = ci.flags;
       return true;
     }
     seen++;
@@ -382,7 +405,7 @@ extern "C" bool ui_get_contact_info(int idx, UiContact* out) {
 // Toggle the favorite-bit on a contact identified by pub_key. Used by
 // both the Contacts tile (unmark) and the Discovered tile (mark as
 // favorite — which also adds to contacts[] first via ui_add_discovered).
-extern "C" bool ui_toggle_favorite(const uint8_t* pub_key) {
+extern "C" bool ui_toggle_favorite(const uint8_t *pub_key) {
   if (!the_mesh.uiToggleFavorite(pub_key)) return false;
   the_mesh.uiSaveContacts();
   return true;
@@ -398,32 +421,31 @@ extern "C" bool ui_toggle_favorite(const uint8_t* pub_key) {
 // 50 entries, LRU eviction on last_ms — enough for an active mesh hour.
 
 struct UiDiscovered {
-  uint8_t  pub_key[32];     // full key so we can call uiAddContact later
-  char     name[32];
-  uint8_t  type;            // ADV_TYPE_*
-  int8_t   snr_q;           // SNR * 4
-  int16_t  rssi;            // dBm
-  uint8_t  path_len;        // 0 = direct, N = N hops
-  int32_t  gps_lat;         // x10^6 from advert (0 if node broadcasts no location)
-  int32_t  gps_lon;
-  uint32_t first_ms;        // millis() at first sighting (this boot)
-  uint32_t last_ms;         // millis() at last update (0 = empty slot)
+  uint8_t pub_key[32]; // full key so we can call uiAddContact later
+  char name[32];
+  uint8_t type;     // ADV_TYPE_*
+  int8_t snr_q;     // SNR * 4
+  int16_t rssi;     // dBm
+  uint8_t path_len; // 0 = direct, N = N hops
+  int32_t gps_lat;  // x10^6 from advert (0 if node broadcasts no location)
+  int32_t gps_lon;
+  uint32_t first_ms; // millis() at first sighting (this boot)
+  uint32_t last_ms;  // millis() at last update (0 = empty slot)
 };
 static const int UI_DISC_CACHE = 50;
 // Heap-allocated in PSRAM (50 entries × ~80 bytes = 4 KB; doesn't fit in DRAM
 // alongside everything else, and the ESP32-S3 on this board has 8 MB PSRAM).
 // Allocated lazily on first ui_on_advert_seen call; UI bridges check for nullptr.
-static UiDiscovered* s_disc_cache = nullptr;
+static UiDiscovered *s_disc_cache = nullptr;
 static bool ensure_disc_cache() {
   if (s_disc_cache) return true;
   // PSRAM-backed zero-initialized buffer.
-  s_disc_cache = (UiDiscovered*)heap_caps_calloc(
-      UI_DISC_CACHE, sizeof(UiDiscovered),
-      MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  s_disc_cache = (UiDiscovered *)heap_caps_calloc(UI_DISC_CACHE, sizeof(UiDiscovered),
+                                                  MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   return s_disc_cache != nullptr;
 }
 
-static UiDiscovered* disc_find(const uint8_t* pub_key) {
+static UiDiscovered *disc_find(const uint8_t *pub_key) {
   if (!s_disc_cache) return nullptr;
   for (int i = 0; i < UI_DISC_CACHE; i++) {
     if (s_disc_cache[i].last_ms == 0) continue;
@@ -436,15 +458,18 @@ static UiDiscovered* disc_find(const uint8_t* pub_key) {
 void disc_persist_save();
 void disc_persist_load();
 
-static UiDiscovered* disc_allocate(const uint8_t* pub_key) {
+static UiDiscovered *disc_allocate(const uint8_t *pub_key) {
   if (!ensure_disc_cache()) return nullptr;
-  UiDiscovered* hit = disc_find(pub_key);
+  UiDiscovered *hit = disc_find(pub_key);
   if (hit) return hit;
   // empty slot first, else LRU by last_ms
-  UiDiscovered* victim = &s_disc_cache[0];
+  UiDiscovered *victim = &s_disc_cache[0];
   uint32_t oldest = victim->last_ms;
   for (int i = 1; i < UI_DISC_CACHE; i++) {
-    if (s_disc_cache[i].last_ms == 0) { victim = &s_disc_cache[i]; break; }
+    if (s_disc_cache[i].last_ms == 0) {
+      victim = &s_disc_cache[i];
+      break;
+    }
     if (s_disc_cache[i].last_ms < oldest) {
       oldest = s_disc_cache[i].last_ms;
       victim = &s_disc_cache[i];
@@ -455,20 +480,22 @@ static UiDiscovered* disc_allocate(const uint8_t* pub_key) {
   return victim;
 }
 
-extern "C" void ui_on_advert_seen(const uint8_t* pub_key, const char* name,
-                                  uint8_t type, float snr, float rssi,
-                                  uint8_t path_len, int32_t lat, int32_t lon) {
-  UiDiscovered* e = disc_allocate(pub_key);
-  if (!e) return;     // PSRAM alloc failed; silently drop
+extern "C" void ui_on_advert_seen(const uint8_t *pub_key, const char *name, uint8_t type, float snr,
+                                  float rssi, uint8_t path_len, int32_t lat, int32_t lon) {
+  UiDiscovered *e = disc_allocate(pub_key);
+  if (!e) return; // PSRAM alloc failed; silently drop
   StrHelper::strncpy(e->name, name ? name : "", sizeof(e->name));
-  e->type     = type;
-  e->snr_q    = (int8_t)(snr * 4.0f);
-  e->rssi     = (int16_t)rssi;
+  e->type = type;
+  e->snr_q = (int8_t)(snr * 4.0f);
+  e->rssi = (int16_t)rssi;
   e->path_len = path_len;
   // Only overwrite a stored location with a non-zero one, so a later
   // advert that happens to omit lat/lon doesn't wipe a good fix.
-  if (lat != 0 || lon != 0) { e->gps_lat = lat; e->gps_lon = lon; }
-  e->last_ms  = millis() ? millis() : 1;
+  if (lat != 0 || lon != 0) {
+    e->gps_lat = lat;
+    e->gps_lon = lon;
+  }
+  e->last_ms = millis() ? millis() : 1;
 
   // Throttled persist of the whole cache to SD (item: save discovered nodes).
   static unsigned long s_disc_save_next = 0;
@@ -482,14 +509,16 @@ extern "C" void ui_on_advert_seen(const uint8_t* pub_key, const char* name,
 // SD is only wired up on the T-Pager variant (strong sd_init() in its
 // target.cpp). This weak default lets non-pager companion targets build and
 // link — SD persistence just no-ops there. Declared before first use below.
-bool __attribute__((weak)) sd_init() { return false; }
+bool __attribute__((weak)) sd_init() {
+  return false;
+}
 
 // ---- Discovered-nodes SD persistence (whole-cache binary dump) -------------
 void disc_persist_save() {
   if (!s_disc_cache || !sd_init()) return;
-  FILE* f = fopen("/sd/disc.dat", "wb");
+  FILE *f = fopen("/sd/disc.dat", "wb");
   if (!f) return;
-  uint32_t magic = 0x32534944;   // 'DIS2' — bumped when UiDiscovered layout changed (added gps_lat/lon)
+  uint32_t magic = 0x32534944; // 'DIS2' — bumped when UiDiscovered layout changed (added gps_lat/lon)
   fwrite(&magic, 4, 1, f);
   for (int i = 0; i < UI_DISC_CACHE; i++) {
     if (s_disc_cache[i].last_ms == 0) continue;
@@ -500,10 +529,13 @@ void disc_persist_save() {
 
 void disc_persist_load() {
   if (!ensure_disc_cache() || !sd_init()) return;
-  FILE* f = fopen("/sd/disc.dat", "rb");
+  FILE *f = fopen("/sd/disc.dat", "rb");
   if (!f) return;
   uint32_t magic = 0;
-  if (fread(&magic, 4, 1, f) != 1 || magic != 0x32534944) { fclose(f); return; }
+  if (fread(&magic, 4, 1, f) != 1 || magic != 0x32534944) {
+    fclose(f);
+    return;
+  }
   int idx = 0;
   UiDiscovered e;
   while (idx < UI_DISC_CACHE && fread(&e, sizeof(e), 1, f) == 1) {
@@ -511,7 +543,7 @@ void disc_persist_load() {
     // millis() fields are meaningless across a reboot; mark the slot
     // occupied with a tiny age so it sorts as "old/loaded".
     s_disc_cache[idx].first_ms = 1;
-    s_disc_cache[idx].last_ms  = 1;
+    s_disc_cache[idx].last_ms = 1;
     idx++;
   }
   fclose(f);
@@ -527,7 +559,7 @@ extern "C" int ui_get_discovered_count() {
 }
 
 // Returns discovered entries newest-first (by last_ms).
-extern "C" bool ui_get_discovered_info(int idx, UiContact* out) {
+extern "C" bool ui_get_discovered_info(int idx, UiContact *out) {
   if (!out || !s_disc_cache) return false;
   // Collect non-empty indices, sort by last_ms desc — cheap for 50 entries.
   int order[UI_DISC_CACHE];
@@ -538,25 +570,26 @@ extern "C" bool ui_get_discovered_info(int idx, UiContact* out) {
   for (int i = 1; i < n; i++) {
     int v = order[i];
     int j = i;
-    while (j > 0 && s_disc_cache[order[j-1]].last_ms < s_disc_cache[v].last_ms) {
-      order[j] = order[j-1]; j--;
+    while (j > 0 && s_disc_cache[order[j - 1]].last_ms < s_disc_cache[v].last_ms) {
+      order[j] = order[j - 1];
+      j--;
     }
     order[j] = v;
   }
   if (idx < 0 || idx >= n) return false;
-  const UiDiscovered& d = s_disc_cache[order[idx]];
+  const UiDiscovered &d = s_disc_cache[order[idx]];
   memset(out, 0, sizeof(*out));
   StrHelper::strncpy(out->name, d.name, sizeof(out->name));
-  out->type        = d.type;
-  out->gps_lat     = d.gps_lat;
-  out->gps_lon     = d.gps_lon;
-  out->snr_q       = d.snr_q;
-  out->rssi        = d.rssi;
-  out->last_advert = d.last_ms / 1000;  // ms since boot → "secs since boot"
-                                        // Discovered tile shows "Ns ago" relative.
+  out->type = d.type;
+  out->gps_lat = d.gps_lat;
+  out->gps_lon = d.gps_lon;
+  out->snr_q = d.snr_q;
+  out->rssi = d.rssi;
+  out->last_advert = d.last_ms / 1000; // ms since boot → "secs since boot"
+                                       // Discovered tile shows "Ns ago" relative.
   memcpy(out->pub_key, d.pub_key, 32);
-  out->flags       = 0;
-  out->path_len    = d.path_len;
+  out->flags = 0;
+  out->path_len = d.path_len;
   return true;
 }
 
@@ -566,8 +599,7 @@ extern "C" bool ui_get_discovered_info(int idx, UiContact* out) {
 extern "C" bool ui_add_discovered_to_contacts(int idx, bool favorite) {
   UiContact uc;
   if (!ui_get_discovered_info(idx, &uc)) return false;
-  if (!the_mesh.uiAddContact(uc.pub_key, uc.name, uc.type, favorite,
-                             uc.gps_lat, uc.gps_lon)) return false;
+  if (!the_mesh.uiAddContact(uc.pub_key, uc.name, uc.type, favorite, uc.gps_lat, uc.gps_lon)) return false;
   the_mesh.uiSaveContacts();
   return true;
 }
@@ -575,12 +607,10 @@ extern "C" bool ui_add_discovered_to_contacts(int idx, bool favorite) {
 // Identity-stable add: the UI captures the target's pub_key/name/type/coords
 // when the popup opens, so a background re-sort of the discovered list can't
 // make the add land on a different node. Preferred over the index-based path.
-extern "C" bool ui_add_contact_by_key(const uint8_t* pub_key, const char* name,
-                                      uint8_t type, int32_t lat, int32_t lon,
-                                      bool favorite) {
+extern "C" bool ui_add_contact_by_key(const uint8_t *pub_key, const char *name, uint8_t type, int32_t lat,
+                                      int32_t lon, bool favorite) {
   if (!pub_key) return false;
-  if (!the_mesh.uiAddContact(pub_key, name ? name : "", type, favorite, lat, lon))
-    return false;
+  if (!the_mesh.uiAddContact(pub_key, name ? name : "", type, favorite, lat, lon)) return false;
   the_mesh.uiSaveContacts();
   return true;
 }
@@ -593,27 +623,25 @@ extern "C" bool ui_add_contact_by_key(const uint8_t* pub_key, const char* name,
 // boots — S3.6d.2 will swap this for an AES-256-CTR-encrypted SD store.
 
 struct DmMsg {
-  uint8_t  pubkey8[8];      // first 8 bytes of contact's pub_key (tagging)
-  uint8_t  from_me;         // 1 = sent by us, 0 = received
-  char     text[120];       // Tanmatsu-compatible 120-char limit
-  uint32_t ts_ms;           // millis() at append (in-memory only)
+  uint8_t pubkey8[8]; // first 8 bytes of contact's pub_key (tagging)
+  uint8_t from_me;    // 1 = sent by us, 0 = received
+  char text[120];     // Tanmatsu-compatible 120-char limit
+  uint32_t ts_ms;     // millis() at append (in-memory only)
 };
 static const int DM_RING_SIZE = 32;
-static DmMsg* s_dm_ring = nullptr;
-static int    s_dm_ring_head = 0;     // next write slot (wraps)
-static int    s_dm_ring_count = 0;    // # valid entries, ≤ DM_RING_SIZE
+static DmMsg *s_dm_ring = nullptr;
+static int s_dm_ring_head = 0;  // next write slot (wraps)
+static int s_dm_ring_count = 0; // # valid entries, ≤ DM_RING_SIZE
 
 static bool ensure_dm_ring() {
   if (s_dm_ring) return true;
-  s_dm_ring = (DmMsg*)heap_caps_calloc(
-      DM_RING_SIZE, sizeof(DmMsg),
-      MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  s_dm_ring = (DmMsg *)heap_caps_calloc(DM_RING_SIZE, sizeof(DmMsg), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   return s_dm_ring != nullptr;
 }
 
-static void dm_ring_push(const uint8_t* pub_key, bool from_me, const char* text) {
+static void dm_ring_push(const uint8_t *pub_key, bool from_me, const char *text) {
   if (!ensure_dm_ring() || !text) return;
-  DmMsg& m = s_dm_ring[s_dm_ring_head];
+  DmMsg &m = s_dm_ring[s_dm_ring_head];
   memcpy(m.pubkey8, pub_key, 8);
   m.from_me = from_me ? 1 : 0;
   StrHelper::strncpy(m.text, text, sizeof(m.text));
@@ -622,40 +650,48 @@ static void dm_ring_push(const uint8_t* pub_key, bool from_me, const char* text)
   if (s_dm_ring_count < DM_RING_SIZE) s_dm_ring_count++;
 }
 
-extern "C" void ui_refresh_open_dm(const uint8_t* pub_key) __attribute__((weak));
+extern "C" void ui_refresh_open_dm(const uint8_t *pub_key) __attribute__((weak));
 
 // ---- DM history SD persistence --------------------------------------------
 // One append-log per peer at /sd/dm_<hex8>.dat. Each record is
 // [uint8 from_me][uint8 len][len bytes]. Loaded into the ring on chat open.
 // sd_init() declared+weak-defaulted above (near disc_persist_save).
-static bool dm_has_active_history(const uint8_t* pub_key);   // fwd
+static bool dm_has_active_history(const uint8_t *pub_key); // fwd
 
-static void dm_hist_path(const uint8_t* pub_key, char* out, size_t cap) {
-  static const char* H = "0123456789abcdef";
+static void dm_hist_path(const uint8_t *pub_key, char *out, size_t cap) {
+  static const char *H = "0123456789abcdef";
   char hx[17];
-  for (int i = 0; i < 8; i++) { hx[i*2] = H[pub_key[i] >> 4]; hx[i*2+1] = H[pub_key[i] & 0x0f]; }
+  for (int i = 0; i < 8; i++) {
+    hx[i * 2] = H[pub_key[i] >> 4];
+    hx[i * 2 + 1] = H[pub_key[i] & 0x0f];
+  }
   hx[16] = 0;
   snprintf(out, cap, "/sd/dm_%s.dat", hx);
 }
 
-static void dm_persist_append(const uint8_t* pub_key, bool from_me, const char* text) {
+static void dm_persist_append(const uint8_t *pub_key, bool from_me, const char *text) {
   if (!text || !sd_init()) return;
-  char path[40]; dm_hist_path(pub_key, path, sizeof(path));
-  FILE* f = fopen(path, "ab");
+  char path[40];
+  dm_hist_path(pub_key, path, sizeof(path));
+  FILE *f = fopen(path, "ab");
   if (!f) return;
   uint8_t fm = from_me ? 1 : 0;
-  size_t L = strlen(text); if (L > 119) L = 119;
+  size_t L = strlen(text);
+  if (L > 119) L = 119;
   uint8_t len = (uint8_t)L;
-  fwrite(&fm, 1, 1, f); fwrite(&len, 1, 1, f); fwrite(text, 1, L, f);
+  fwrite(&fm, 1, 1, f);
+  fwrite(&len, 1, 1, f);
+  fwrite(text, 1, L, f);
   fclose(f);
 }
 
 // Restore a peer's history into the ring (oldest-first, last DM_RING_SIZE).
 // No-op if the ring already holds messages for the peer.
-extern "C" void ui_load_dm_history(const uint8_t* pub_key) {
+extern "C" void ui_load_dm_history(const uint8_t *pub_key) {
   if (dm_has_active_history(pub_key) || !sd_init()) return;
-  char path[40]; dm_hist_path(pub_key, path, sizeof(path));
-  FILE* f = fopen(path, "rb");
+  char path[40];
+  dm_hist_path(pub_key, path, sizeof(path));
+  FILE *f = fopen(path, "rb");
   if (!f) return;
   static char texts[DM_RING_SIZE][120];
   static uint8_t fms[DM_RING_SIZE];
@@ -667,19 +703,19 @@ extern "C" void ui_load_dm_history(const uint8_t* pub_key) {
     if (fread(buf, 1, len, f) != len) break;
     buf[len] = 0;
     int s = n % DM_RING_SIZE;
-    fms[s] = fm; memcpy(texts[s], buf, len + 1);
+    fms[s] = fm;
+    memcpy(texts[s], buf, len + 1);
     n++;
   }
   fclose(f);
   int start = n > DM_RING_SIZE ? n - DM_RING_SIZE : 0;
   for (int i = start; i < n; i++) {
     int s = i % DM_RING_SIZE;
-    dm_ring_push(pub_key, fms[s] != 0, texts[s]);   // ring only — no re-persist
+    dm_ring_push(pub_key, fms[s] != 0, texts[s]); // ring only — no re-persist
   }
 }
 
-extern "C" void ui_on_dm_message(const uint8_t* pub_key, uint32_t timestamp,
-                                 const char* text) {
+extern "C" void ui_on_dm_message(const uint8_t *pub_key, uint32_t timestamp, const char *text) {
   (void)timestamp;
   dm_ring_push(pub_key, /*from_me=*/false, text);
   dm_persist_append(pub_key, /*from_me=*/false, text);
@@ -691,7 +727,7 @@ extern "C" void ui_on_dm_message(const uint8_t* pub_key, uint32_t timestamp,
 // (so a "start DM" via Contacts → Open DM has somewhere to land).
 // This avoids cluttering the tile with every chat-type advert ever
 // heard (which is what the Discovered tile is for).
-static bool dm_has_active_history(const uint8_t* pub_key) {
+static bool dm_has_active_history(const uint8_t *pub_key) {
   if (!s_dm_ring) return false;
   for (int i = 0; i < s_dm_ring_count; i++) {
     if (memcmp(s_dm_ring[i].pubkey8, pub_key, 8) == 0) return true;
@@ -706,14 +742,14 @@ extern "C" int ui_get_dm_contact_count() {
     if (!the_mesh.getContactByIdx(i, ci)) break;
     if (!ci.name[0]) continue;
     if (ci.type != 1 /* ADV_TYPE_CHAT */) continue;
-    bool fav    = (ci.flags & 0x01) != 0;
+    bool fav = (ci.flags & 0x01) != 0;
     bool active = dm_has_active_history(ci.id.pub_key);
     if (fav || active) count++;
   }
   return count;
 }
 
-extern "C" bool ui_get_dm_contact_info(int idx, UiContact* out) {
+extern "C" bool ui_get_dm_contact_info(int idx, UiContact *out) {
   if (!out) return false;
   int seen = 0;
   for (uint32_t i = 0; i < MAX_CONTACTS; i++) {
@@ -721,19 +757,19 @@ extern "C" bool ui_get_dm_contact_info(int idx, UiContact* out) {
     if (!the_mesh.getContactByIdx(i, ci)) break;
     if (!ci.name[0]) continue;
     if (ci.type != 1) continue;
-    bool fav    = (ci.flags & 0x01) != 0;
+    bool fav = (ci.flags & 0x01) != 0;
     bool active = dm_has_active_history(ci.id.pub_key);
     if (!fav && !active) continue;
     if (seen == idx) {
       memset(out, 0, sizeof(*out));
       StrHelper::strncpy(out->name, ci.name, sizeof(out->name));
-      out->type        = ci.type;
+      out->type = ci.type;
       out->last_advert = ci.last_advert_timestamp;
       memcpy(out->pub_key, ci.id.pub_key, 32);
-      out->flags       = ci.flags;
-      UiSigEntry* sig  = sig_find(ci.id.pub_key);
-      out->snr_q       = sig ? sig->snr_q : (int8_t)-128;
-      out->rssi        = sig ? sig->rssi  : (int16_t)0;
+      out->flags = ci.flags;
+      UiSigEntry *sig = sig_find(ci.id.pub_key);
+      out->snr_q = sig ? sig->snr_q : (int8_t)-128;
+      out->rssi = sig ? sig->rssi : (int16_t)0;
       return true;
     }
     seen++;
@@ -741,7 +777,7 @@ extern "C" bool ui_get_dm_contact_info(int idx, UiContact* out) {
   return false;
 }
 
-extern "C" bool ui_send_dm(const uint8_t* pub_key, const char* text) {
+extern "C" bool ui_send_dm(const uint8_t *pub_key, const char *text) {
   if (!pub_key || !text || !text[0]) return false;
   if (!the_mesh.uiSendDm(pub_key, text)) return false;
   // Also append to the local ring so the user sees their own send.
@@ -755,12 +791,12 @@ extern "C" bool ui_send_dm(const uint8_t* pub_key, const char* text) {
 // returned oldest-first. Returns false past the end of the per-contact
 // list.
 struct UiDmMsg {
-  char     text[120];
-  uint8_t  from_me;
-  uint32_t age_s;       // seconds since this message was appended
+  char text[120];
+  uint8_t from_me;
+  uint32_t age_s; // seconds since this message was appended
 };
 
-extern "C" int ui_get_dm_msg_count(const uint8_t* pub_key) {
+extern "C" int ui_get_dm_msg_count(const uint8_t *pub_key) {
   if (!s_dm_ring || !pub_key) return 0;
   int n = 0;
   for (int i = 0; i < s_dm_ring_count; i++) {
@@ -769,7 +805,7 @@ extern "C" int ui_get_dm_msg_count(const uint8_t* pub_key) {
   return n;
 }
 
-extern "C" bool ui_get_dm_msg(const uint8_t* pub_key, int idx, UiDmMsg* out) {
+extern "C" bool ui_get_dm_msg(const uint8_t *pub_key, int idx, UiDmMsg *out) {
   if (!s_dm_ring || !pub_key || !out) return false;
   // Iterate oldest-first: start at head and walk forward (head is the
   // NEXT-write slot, so head itself is oldest once the ring is full).
@@ -782,7 +818,7 @@ extern "C" bool ui_get_dm_msg(const uint8_t* pub_key, int idx, UiDmMsg* out) {
     if (seen == idx) {
       StrHelper::strncpy(out->text, s_dm_ring[i].text, sizeof(out->text));
       out->from_me = s_dm_ring[i].from_me;
-      out->age_s   = (now - s_dm_ring[i].ts_ms) / 1000;
+      out->age_s = (now - s_dm_ring[i].ts_ms) / 1000;
       return true;
     }
     seen++;
@@ -790,7 +826,7 @@ extern "C" bool ui_get_dm_msg(const uint8_t* pub_key, int idx, UiDmMsg* out) {
   return false;
 }
 
-extern "C" void ui_get_self_loc(double* lat, double* lon) {
+extern "C" void ui_get_self_loc(double *lat, double *lon) {
   if (lat) *lat = sensors.node_lat;
   if (lon) *lon = sensors.node_lon;
 }
@@ -803,11 +839,11 @@ extern "C" void tpager_gps_power(bool on) __attribute__((weak));
 extern "C" void ui_set_gps_active(bool on) {
 #if ENV_INCLUDE_GPS == 1
   if (on) {
-    if (tpager_gps_power) tpager_gps_power(true);   // rail up first — module boots
-    sensors.setSettingValue("gps", "1");            // resume UART drain/parse
+    if (tpager_gps_power) tpager_gps_power(true); // rail up first — module boots
+    sensors.setSettingValue("gps", "1");          // resume UART drain/parse
   } else {
-    sensors.setSettingValue("gps", "0");            // stop UART drain/parse
-    if (tpager_gps_power) tpager_gps_power(false);  // then cut the rail
+    sensors.setSettingValue("gps", "0");           // stop UART drain/parse
+    if (tpager_gps_power) tpager_gps_power(false); // then cut the rail
   }
 #else
   (void)on;
@@ -817,15 +853,15 @@ extern "C" void ui_set_gps_active(bool on) {
 // Saved "home" location (T-Pager Settings tile). ui_get_home_loc returns
 // true only when a home has been stored (non-zero). ui_set_home_loc stores
 // + persists; (0,0) clears it.
-extern "C" bool ui_get_home_loc(double* lat, double* lon) {
-  NodePrefs* p = the_mesh.getNodePrefs();
+extern "C" bool ui_get_home_loc(double *lat, double *lon) {
+  NodePrefs *p = the_mesh.getNodePrefs();
   if (lat) *lat = p->home_lat;
   if (lon) *lon = p->home_lon;
   return (p->home_lat != 0.0 || p->home_lon != 0.0);
 }
 
 extern "C" void ui_set_home_loc(double lat, double lon) {
-  NodePrefs* p = the_mesh.getNodePrefs();
+  NodePrefs *p = the_mesh.getNodePrefs();
   p->home_lat = lat;
   p->home_lon = lon;
   the_mesh.savePrefs();
@@ -841,7 +877,7 @@ extern "C" uint32_t ui_get_now_epoch() {
 // correcting a wrong (e.g. fast) clock must be able to move it in either
 // direction. Writes through to the battery-backed RTC.
 extern "C" bool ui_set_device_time(uint32_t epoch) {
-  if (epoch < 1704067200UL) return false;   // reject implausible (< 2024-01-01)
+  if (epoch < 1704067200UL) return false; // reject implausible (< 2024-01-01)
   the_mesh.getRTCClock()->setCurrentTime(epoch);
   return true;
 }
@@ -850,14 +886,12 @@ extern "C" bool ui_set_device_time(uint32_t epoch) {
 // channel is empty or sendGroupMessage rejects the payload. The
 // caller is responsible for the channel index — variant UIs find it
 // via ui_get_channel_name iteration.
-extern "C" bool ui_send_group_text(int channel_idx, const char* text) {
+extern "C" bool ui_send_group_text(int channel_idx, const char *text) {
   if (!text || !text[0]) return false;
   ChannelDetails ch;
   if (!the_mesh.getChannel(channel_idx, ch) || !ch.name[0]) return false;
   uint32_t now = the_mesh.getRTCClock()->getCurrentTime();
-  return the_mesh.sendGroupMessage(now, ch.channel,
-                                   the_mesh.getNodeName(),
-                                   text, strlen(text));
+  return the_mesh.sendGroupMessage(now, ch.channel, the_mesh.getNodeName(), text, strlen(text));
 }
 
 // Apply a new default-scope name from the variant UI. The HMAC key
@@ -865,8 +899,8 @@ extern "C" bool ui_send_group_text(int channel_idx, const char* text) {
 // pattern MyMesh uses at first-boot from DEFAULT_FLOOD_SCOPE_NAME.
 // Empty name zeroes the key (= wildcard / no scope).
 #include <helpers/TransportKeyStore.h>
-extern "C" void ui_apply_default_scope(const char* name) {
-  auto* p = the_mesh.getNodePrefs();
+extern "C" void ui_apply_default_scope(const char *name) {
+  auto *p = the_mesh.getNodePrefs();
   if (!name) name = "";
   size_t n = strlen(name);
   if (n >= sizeof(p->default_scope_name)) n = sizeof(p->default_scope_name) - 1;
@@ -889,8 +923,8 @@ extern "C" void ui_apply_default_scope(const char* name) {
 // UITask.cpp; implementations call the new uiSendLogin/uiSendBinaryReq methods
 // added to MyMesh.h so the mesh layer owns all pending-state bookkeeping.
 // Radio-protocol request types (match simple_repeater/handleRequest constants)
-static const uint8_t kReqGetStatus    = 0x01;  // REQ_TYPE_GET_STATUS
-static const uint8_t kReqGetOwnerInfo = 0x07;  // REQ_TYPE_GET_OWNER_INFO (firmware >= v2)
+static const uint8_t kReqGetStatus = 0x01;    // REQ_TYPE_GET_STATUS
+static const uint8_t kReqGetOwnerInfo = 0x07; // REQ_TYPE_GET_OWNER_INFO (firmware >= v2)
 extern "C" bool ui_repeater_login(const uint8_t *pub_key, const char *pw) {
   if (!pub_key || !pw) return false;
   return the_mesh.uiSendLogin(pub_key, pw);
@@ -902,9 +936,10 @@ extern "C" bool ui_repeater_get_vars(const uint8_t *pub_key) {
   return the_mesh.uiSendBinaryReq(pub_key, kReqGetOwnerInfo, nullptr, 0, 0);
 }
 
-extern "C" bool ui_repeater_set_var(const uint8_t *pub_key, const char *name,
-                                    const char *value) {
-  (void)pub_key; (void)name; (void)value;
+extern "C" bool ui_repeater_set_var(const uint8_t *pub_key, const char *name, const char *value) {
+  (void)pub_key;
+  (void)name;
+  (void)value;
   return false; // set-var not supported over radio in this firmware
 }
 
@@ -915,13 +950,14 @@ extern "C" bool ui_repeater_get_stats(const uint8_t *pub_key) {
 }
 
 void halt() {
-  while (1) ;
+  while (1)
+    ;
 }
 
 /* WIFI RECONNECT TRACKERS */
 #if defined(ESP32) && defined(WIFI_SSID)
-  bool wifi_needs_reconnect = false;
-  unsigned long last_wifi_reconnect_attempt = 0;
+bool wifi_needs_reconnect = false;
+unsigned long last_wifi_reconnect_attempt = 0;
 #endif
 
 void setup() {
@@ -934,10 +970,8 @@ void setup() {
   // useful in the next round of testing. ESP-only (psramFound()/ESP.* are
   // Arduino-ESP32 globals); other companion targets skip it.
 #if defined(ESP_PLATFORM)
-  Serial.printf("[BOOT] psramFound=%d psram_size=%u free_psram=%u\n",
-                psramFound() ? 1 : 0,
-                (unsigned)ESP.getPsramSize(),
-                (unsigned)ESP.getFreePsram());
+  Serial.printf("[BOOT] psramFound=%d psram_size=%u free_psram=%u\n", psramFound() ? 1 : 0,
+                (unsigned)ESP.getPsramSize(), (unsigned)ESP.getFreePsram());
 #endif
 
 #ifdef HAS_EXTERNAL_WATCHDOG
@@ -945,66 +979,69 @@ void setup() {
 #endif
 
 #ifdef DISPLAY_CLASS
-  DisplayDriver* disp = NULL;
+  DisplayDriver *disp = NULL;
   if (display.begin()) {
     disp = &display;
     disp->startFrame();
-  #ifdef ST7789
+#ifdef ST7789
     disp->setTextSize(2);
-  #endif
+#endif
     disp->drawTextCentered(disp->width() / 2, 28, "Loading...");
     disp->endFrame();
   }
 #endif
 
-  if (!radio_init()) { halt(); }
+  if (!radio_init()) {
+    halt();
+  }
 
   fast_rng.begin(radio_driver.getRngSeed());
 
 #if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
   InternalFS.begin();
-  #if defined(QSPIFLASH)
-    if (!QSPIFlash.begin()) {
-      // debug output might not be available at this point, might be too early. maybe should fall back to InternalFS here?
-      MESH_DEBUG_PRINTLN("CustomLFS_QSPIFlash: failed to initialize");
-    } else {
-      MESH_DEBUG_PRINTLN("CustomLFS_QSPIFlash: initialized successfully");
-    }
-  #else
-  #if defined(EXTRAFS)
-      ExtraFS.begin();
-  #endif
-  #endif
+#if defined(QSPIFLASH)
+  if (!QSPIFlash.begin()) {
+    // debug output might not be available at this point, might be too early. maybe should fall back to
+    // InternalFS here?
+    MESH_DEBUG_PRINTLN("CustomLFS_QSPIFlash: failed to initialize");
+  } else {
+    MESH_DEBUG_PRINTLN("CustomLFS_QSPIFlash: initialized successfully");
+  }
+#else
+#if defined(EXTRAFS)
+  ExtraFS.begin();
+#endif
+#endif
   store.begin();
   the_mesh.begin(
-    #ifdef DISPLAY_CLASS
-        disp != NULL
-    #else
-        false
-    #endif
+#ifdef DISPLAY_CLASS
+      disp != NULL
+#else
+      false
+#endif
   );
 #elif defined(RP2040_PLATFORM)
   LittleFS.begin();
   store.begin();
   the_mesh.begin(
-    #ifdef DISPLAY_CLASS
-        disp != NULL
-    #else
-        false
-    #endif
+#ifdef DISPLAY_CLASS
+      disp != NULL
+#else
+      false
+#endif
   );
 #elif defined(ESP32)
   SPIFFS.begin(true);
   store.begin();
   the_mesh.begin(
-    #ifdef DISPLAY_CLASS
-        disp != NULL
-    #else
-        false
-    #endif
+#ifdef DISPLAY_CLASS
+      disp != NULL
+#else
+      false
+#endif
   );
 #else
-  #error "need to define filesystem"
+#error "need to define filesystem"
 #endif
 
 // add bluetooth interface
@@ -1015,17 +1052,17 @@ void setup() {
 
 // add wifi interface
 #ifdef WIFI_SSID
-  board.setInhibitSleep(true);   // prevent sleep when WiFi is active
+  board.setInhibitSleep(true); // prevent sleep when WiFi is active
   WiFi.setAutoReconnect(true);
 
-  WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info){
-      if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
-          WIFI_DEBUG_PRINTLN("WiFi disconnected. Flagging for reconnect...");
-          wifi_needs_reconnect = true;
-      } else if (event == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
-          WIFI_DEBUG_PRINTLN("WiFi connected successfully!");
-          wifi_needs_reconnect = false;
-      }
+  WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
+    if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
+      WIFI_DEBUG_PRINTLN("WiFi disconnected. Flagging for reconnect...");
+      wifi_needs_reconnect = true;
+    } else if (event == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
+      WIFI_DEBUG_PRINTLN("WiFi connected successfully!");
+      wifi_needs_reconnect = false;
+    }
   });
 
   WiFi.begin(WIFI_SSID, WIFI_PWD);
@@ -1062,7 +1099,7 @@ void setup() {
 
 #if ENV_INCLUDE_GPS == 1
   the_mesh.applyGpsPrefs();
-  #if defined(T_LORA_PAGER_LR1121)
+#if defined(T_LORA_PAGER_LR1121)
   // The companion default is gps_enabled=0 (the phone toggles it on). The
   // pager is a standalone GPS device with no such toggle, and applyGpsPrefs()
   // above just turned the receiver off — force it on so it actually acquires
@@ -1070,11 +1107,12 @@ void setup() {
   // true so this setting is accepted.)
   sensors.setSettingValue("gps", "1");
   sensors.setSettingValue("gps_interval", "1");
-  #endif
+#endif
 #endif
 
 #ifdef DISPLAY_CLASS
-  ui_task.begin(disp, &sensors, the_mesh.getNodePrefs());  // still want to pass this in as dependency, as prefs might be moved
+  ui_task.begin(disp, &sensors,
+                the_mesh.getNodePrefs()); // still want to pass this in as dependency, as prefs might be moved
 #endif
 
   board.onBootComplete();

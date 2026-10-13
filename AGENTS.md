@@ -139,3 +139,17 @@ python -m esptool --chip esp32s3 --port /dev/ttyACM0 --baud 115200 \
 This repo is a fork of [CJvanSoest/meshcore-lilygo-pager-LR1121](https://github.com/CJvanSoest/meshcore-lilygo-pager-LR1121).
 Upstream changes are merged periodically into `main` via `git fetch origin && git merge origin/main`.
 Avoid editing shared files outside `variants/lilygo_tlora_pager_sx1262/` unless absolutely necessary; prefer weak bridge functions so upstream merges stay clean.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues (`dcooper94/meshcore-lilygo-pager-SX1262`). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default five-label vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context repo: one `CONTEXT.md` at the root and `docs/adr/` for architectural decisions. See `docs/agents/domain.md`.

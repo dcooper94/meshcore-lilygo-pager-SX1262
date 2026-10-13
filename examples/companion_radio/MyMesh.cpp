@@ -717,7 +717,6 @@ uint8_t MyMesh::onContactRequest(const ContactInfo &contact, uint32_t sender_tim
 void MyMesh::onContactResponse(const ContactInfo &contact, const uint8_t *data, uint8_t len) {
   uint32_t tag;
   memcpy(&tag, data, 4);
-
   if (pending_login && memcmp(&pending_login, contact.id.pub_key, 4) == 0) { // check for login response
     // yes, is response to pending sendLogin()
     pending_login = 0;
@@ -804,34 +803,46 @@ void MyMesh::onContactResponse(const ContactInfo &contact, const uint8_t *data, 
     const uint8_t *payload = &data[4];
     uint8_t plen = len - 4;
     if (rtype == 0 && ui_on_rptr_vars) {
-      // CMD_GET_CUSTOM_VARS response: [RESP_CODE_CUSTOM_VARS] "name:val,..."
-      const char *csv = (plen > 1 && payload[0] == RESP_CODE_CUSTOM_VARS)
-                            ? (const char *)(payload + 1) : (const char *)payload;
-      // Ensure null-termination via a local copy
+      // REQ_TYPE_GET_OWNER_INFO response: "firmware_ver\nnode_name\nowner_info" text
       static char vars_buf[160];
-      size_t copy_len = (plen > 1 && payload[0] == RESP_CODE_CUSTOM_VARS) ? plen - 1 : plen;
-      if (copy_len >= sizeof(vars_buf)) copy_len = sizeof(vars_buf) - 1;
-      memcpy(vars_buf, csv, copy_len);
-      vars_buf[copy_len] = 0;
-      ui_on_rptr_vars(saved_key, vars_buf);
+      static char tmp_buf[160];
+      size_t copy_len = (plen < sizeof(tmp_buf) - 1) ? plen : sizeof(tmp_buf) - 1;
+      memcpy(tmp_buf, payload, copy_len);
+      tmp_buf[copy_len] = 0;
+      // Parse newline-separated fields into CSV "Firmware:X,Name:Y,Owner:Z"
+      char *fw = tmp_buf;
+      char *nm = strchr(fw, '\n'); if (nm) *nm++ = 0;
+      char *ow = nm ? strchr(nm, '\n') : NULL; if (ow) *ow++ = 0;
+      int pos = 0;
+      if (fw && fw[0]) pos += snprintf(vars_buf+pos, sizeof(vars_buf)-pos, "Firmware:%s", fw);
+      if (nm && nm[0]) pos += snprintf(vars_buf+pos, sizeof(vars_buf)-pos, "%sName:%s", pos ? "," : "", nm);
+      if (ow && ow[0]) pos += snprintf(vars_buf+pos, sizeof(vars_buf)-pos, "%sOwner:%s", pos ? "," : "", ow);
+      vars_buf[pos] = 0;
+      ui_on_rptr_vars(saved_key, pos > 0 ? vars_buf : nullptr);
     } else if (rtype == 1 && ui_on_rptr_set_result) {
-      // CMD_SET_CUSTOM_VAR response: RESP_CODE_OK or RESP_CODE_ERR
-      bool ok = (plen > 0 && payload[0] == RESP_CODE_OK);
-      ui_on_rptr_set_result(saved_key, ok);
+      // set-var not supported over radio; treat any reply as failure
+      ui_on_rptr_set_result(saved_key, false);
     } else if (rtype == 2 && ui_on_rptr_stats) {
-      // CMD_GET_STATS response: binary stats struct — format as text for the UI
+      // REQ_TYPE_GET_STATUS response: RepeaterStats struct (no prefix byte)
+      // struct layout: batt_mv(u16), queue(u16), noise(i16), rssi(i16),
+      //                n_recv(u32), n_sent(u32), air_time(u32), uptime(u32), ...
       static char stats_buf[160];
       int pos = 0;
-      if (plen >= 10 && payload[0] == RESP_CODE_STATS) {
-        uint16_t batt_mv;  memcpy(&batt_mv, &payload[2], 2);
-        uint32_t uptime;   memcpy(&uptime,  &payload[4], 4);
-        uint8_t  q_len = (plen > 9) ? payload[9] : 0;
-        pos += snprintf(stats_buf + pos, sizeof(stats_buf) - pos,
-                        "Battery: %u mV\nUptime: %us\nQ: %u",
-                        batt_mv, uptime, q_len);
-      } else {
-        snprintf(stats_buf, sizeof(stats_buf), "(no stats)");
+      if (plen >= 2) {
+        uint16_t batt_mv; memcpy(&batt_mv, payload, 2);
+        pos += snprintf(stats_buf+pos, sizeof(stats_buf)-pos, "Battery: %u mV", batt_mv);
       }
+      if (plen >= 24) {
+        uint32_t uptime; memcpy(&uptime, payload+20, 4);
+        pos += snprintf(stats_buf+pos, sizeof(stats_buf)-pos, "\nUptime: %us", uptime);
+      }
+      if (plen >= 16) {
+        uint32_t rpkts, spkts;
+        memcpy(&rpkts, payload+8,  4);
+        memcpy(&spkts, payload+12, 4);
+        pos += snprintf(stats_buf+pos, sizeof(stats_buf)-pos, "\nRX: %u  TX: %u", rpkts, spkts);
+      }
+      if (pos == 0) snprintf(stats_buf, sizeof(stats_buf), "(no stats)");
       ui_on_rptr_stats(saved_key, stats_buf);
     }
   }

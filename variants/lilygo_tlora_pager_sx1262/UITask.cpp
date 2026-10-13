@@ -175,6 +175,7 @@ static lv_group_t *s_rptr_login_group = nullptr;
 static lv_obj_t *s_rptr_login_err_label = nullptr;
 static lv_obj_t *s_rptr_pw_label = nullptr; // shows typed password
 static bool s_rptr_login_valid = false;
+static bool s_rptr_pw_load_needed = false; // deferred NVS read flag
 static char s_rptr_pw_buf[64] = {};
 static int s_rptr_pw_len = 0;
 // Management screen: settings (custom vars) + stats
@@ -775,7 +776,14 @@ extern "C" void ui_input_char(char c) {
       s_rptr_pw_buf[s_rptr_pw_len++] = c;
       s_rptr_pw_buf[s_rptr_pw_len] = 0;
     }
-    lv_label_set_text(s_rptr_pw_label, s_rptr_pw_len == 0 ? "_" : s_rptr_pw_buf);
+    if (s_rptr_pw_len == 0) {
+      lv_label_set_text(s_rptr_pw_label, "_");
+    } else {
+      static char mask[sizeof(s_rptr_pw_buf)];
+      memset(mask, '*', s_rptr_pw_len);
+      mask[s_rptr_pw_len] = 0;
+      lv_label_set_text(s_rptr_pw_label, mask);
+    }
     return;
   }
   if (s_editing_idx == EDIT_IDX_RPTR_VAR && s_rptr_var_val_label) {
@@ -2672,7 +2680,11 @@ static void discovered_list_populate() {
     lv_obj_t *lbl_hops = lv_label_create(row);
     lv_obj_set_width(lbl_hops, CON_COL_DIST);
     char hop_buf[8];
-    snprintf(hop_buf, sizeof(hop_buf), "%u", (unsigned)ci.path_len);
+    uint8_t disc_hops = ci.path_len & 0x3F;
+    if (disc_hops == 0)
+      snprintf(hop_buf, sizeof(hop_buf), "dir");
+    else
+      snprintf(hop_buf, sizeof(hop_buf), "%u", (unsigned)disc_hops);
     lv_label_set_text(lbl_hops, hop_buf);
     lv_obj_set_style_text_color(lbl_hops, lv_color_hex(PAL->text_dim), 0);
 
@@ -2831,6 +2843,7 @@ static void repeaters_list_populate() {
           s_rptr_login_valid = true;
           s_rptr_pw_buf[0] = 0;
           s_rptr_pw_len = 0;
+          s_rptr_pw_load_needed = true; // NVS read deferred to loop()
           if (s_rptr_pw_label) lv_label_set_text(s_rptr_pw_label, "_");
           if (s_rptr_login_err_label) {
             lv_label_set_text(s_rptr_login_err_label, "");
@@ -2879,7 +2892,11 @@ static void repeaters_list_populate() {
     lv_obj_t *lbl_hops = lv_label_create(row);
     lv_obj_set_width(lbl_hops, CON_COL_DIST);
     char hop_buf[8];
-    snprintf(hop_buf, sizeof(hop_buf), "%u", (unsigned)ci.path_len);
+    uint8_t rptr_hops = ci.path_len & 0x3F;
+    if (rptr_hops == 0)
+      snprintf(hop_buf, sizeof(hop_buf), "dir");
+    else
+      snprintf(hop_buf, sizeof(hop_buf), "%u", (unsigned)rptr_hops);
     lv_label_set_text(lbl_hops, hop_buf);
     lv_obj_set_style_text_color(lbl_hops, lv_color_hex(PAL->text_dim), 0);
 
@@ -2921,6 +2938,7 @@ static void repeaters_list_populate() {
 static void rptr_login_close() {
   if (s_rptr_login_popup) lv_obj_add_flag(s_rptr_login_popup, LV_OBJ_FLAG_HIDDEN);
   s_rptr_login_valid = false;
+  s_rptr_pw_load_needed = false;
   s_editing_idx = -1;
   lv_indev_t *enc = tpager_lvgl_get_encoder();
   if (enc && s_repeaters_group) {
@@ -2934,10 +2952,7 @@ static void rptr_login_confirm() {
     rptr_login_close();
     return;
   }
-  if (ui_repeater_login) {
-    ui_repeater_login(s_rptr_login_contact.pub_key, s_rptr_pw_buf);
-  }
-  // Response arrives asynchronously in ui_on_rptr_login_result
+  ui_repeater_login ? ui_repeater_login(s_rptr_login_contact.pub_key, s_rptr_pw_buf) : false;
 }
 
 // Opens the management screen for a logged-in repeater.
@@ -2957,9 +2972,8 @@ static void rptr_mgmt_open() {
   lv_obj_set_style_text_color(lbl, lv_color_hex(PAL->text_dim), 0);
   lv_indev_t *enc = tpager_lvgl_get_encoder();
   if (enc && s_rptr_mgmt_group) lv_indev_set_group(enc, s_rptr_mgmt_group);
-  // Fire off both async requests
+  // Fire get_vars first; get_stats is chained after vars arrive to avoid tag collision
   if (ui_repeater_get_vars) ui_repeater_get_vars(s_rptr_mgmt_key);
-  if (ui_repeater_get_stats) ui_repeater_get_stats(s_rptr_mgmt_key);
 }
 
 static void rptr_mgmt_close() {
@@ -2983,13 +2997,13 @@ static void rptr_mgmt_populate_vars(const char *csv) {
 
   // Section heading
   lv_obj_t *sec = lv_label_create(s_rptr_mgmt_list);
-  lv_label_set_text(sec, "Settings");
+  lv_label_set_text(sec, "Info");
   lv_obj_set_style_text_color(sec, lv_color_hex(PAL->accent), 0);
   lv_obj_set_style_text_font(sec, &lv_font_montserrat_16, 0);
 
   if (!csv || !csv[0]) {
     lv_obj_t *emp = lv_label_create(s_rptr_mgmt_list);
-    lv_label_set_text(emp, "(none)");
+    lv_label_set_text(emp, "(not available)");
     lv_obj_set_style_text_color(emp, lv_color_hex(PAL->text_dim), 0);
   } else {
     // Parse CSV: "name1:val1,name2:val2,..."
@@ -3003,56 +3017,27 @@ static void rptr_mgmt_populate_vars(const char *csv) {
       const char *kval = sep ? sep + 1 : "";
       if (sep) *sep = 0;
 
+      // Focusable read-only row (encoder scrolls through; no edit action)
       lv_obj_t *row = lv_obj_create(s_rptr_mgmt_list);
       lv_obj_remove_style_all(row);
       lv_obj_set_size(row, lv_pct(100), 28);
       lv_obj_set_style_bg_color(row, lv_color_hex(PAL->surface), 0);
       lv_obj_set_style_bg_color(row, lv_color_hex(PAL->surface_focus), LV_STATE_FOCUSED);
+      lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
       lv_obj_set_style_text_font(row, &lv_font_montserrat_16, 0);
       lv_obj_set_style_text_color(row, lv_color_hex(PAL->text), 0);
-      lv_obj_set_style_text_color(row, lv_color_hex(0xFAA61A), LV_STATE_FOCUSED);
       lv_obj_set_style_pad_hor(row, 6, 0);
       lv_obj_set_style_radius(row, 4, 0);
       lv_obj_set_style_margin_bottom(row, 1, 0);
       lv_obj_set_style_border_color(row, lv_color_hex(PAL->border), 0);
       lv_obj_set_style_border_width(row, 1, 0);
       lv_obj_set_style_border_side(row, LV_BORDER_SIDE_BOTTOM, 0);
-      lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
       lv_obj_add_flag(row, LV_OBJ_FLAG_CLICK_FOCUSABLE);
       lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
       lv_obj_add_flag(row, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
       lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
       lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
       lv_obj_set_style_pad_column(row, 6, 0);
-
-      // Store key name in user_data as a static string via a small arena
-      static char s_var_keys[16][32];
-      static int s_vk_idx = 0;
-      int slot = s_vk_idx++ % 16;
-      strncpy(s_var_keys[slot], kname, sizeof(s_var_keys[slot]) - 1);
-      s_var_keys[slot][sizeof(s_var_keys[slot]) - 1] = 0;
-
-      lv_obj_add_event_cb(
-          row,
-          [](lv_event_t *e) {
-            const char *key = (const char *)lv_event_get_user_data(e);
-            if (!key || !s_rptr_var_popup) return;
-            strncpy(s_rptr_edit_key, key, sizeof(s_rptr_edit_key) - 1);
-            s_rptr_edit_key[sizeof(s_rptr_edit_key) - 1] = 0;
-            s_text_buf[0] = 0;
-            s_text_len = 0;
-            if (s_rptr_var_val_label) lv_label_set_text(s_rptr_var_val_label, "_");
-            // Update popup title
-            lv_obj_t *ttl = lv_obj_get_child(s_rptr_var_popup, 0);
-            if (ttl) lv_label_set_text(ttl, key);
-            lv_obj_remove_flag(s_rptr_var_popup, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_move_foreground(s_rptr_var_popup);
-            s_editing_idx = EDIT_IDX_RPTR_VAR;
-            lv_indev_t *enc2 = tpager_lvgl_get_encoder();
-            if (enc2 && s_rptr_var_group) lv_indev_set_group(enc2, s_rptr_var_group);
-          },
-          LV_EVENT_CLICKED, (void *)s_var_keys[slot]);
-      lv_obj_add_event_cb(row, back_long_press_event, LV_EVENT_LONG_PRESSED, NULL);
 
       lv_obj_t *lk = lv_label_create(row);
       lv_label_set_text(lk, kname);
@@ -3086,6 +3071,7 @@ static void rptr_mgmt_populate_stats(const char *text) {
   int stats_hdr_idx = -1;
   for (uint32_t i = 0; i < cnt; i++) {
     lv_obj_t *ch = lv_obj_get_child(s_rptr_mgmt_list, i);
+    if (lv_obj_get_class(ch) != &lv_label_class) continue;
     const char *t = lv_label_get_text(ch);
     if (t && strcmp(t, "Stats") == 0) {
       stats_hdr_idx = (int)i;
@@ -3099,17 +3085,28 @@ static void rptr_mgmt_populate_stats(const char *text) {
     lv_obj_del(lv_obj_get_child(s_rptr_mgmt_list, i));
   }
 
-  // Append stats lines (newline-separated)
+  // Append stats lines (newline-separated), each as a focusable row for scrolling
   char buf[256];
   strncpy(buf, text, sizeof(buf) - 1);
   buf[sizeof(buf) - 1] = 0;
   char *line = strtok(buf, "\n");
   while (line) {
-    lv_obj_t *r = lv_label_create(s_rptr_mgmt_list);
-    lv_label_set_text(r, line);
+    lv_obj_t *r = lv_obj_create(s_rptr_mgmt_list);
+    lv_obj_remove_style_all(r);
+    lv_obj_set_size(r, lv_pct(100), 24);
+    lv_obj_set_style_bg_color(r, lv_color_hex(PAL->surface), 0);
+    lv_obj_set_style_bg_color(r, lv_color_hex(PAL->surface_focus), LV_STATE_FOCUSED);
+    lv_obj_set_style_bg_opa(r, LV_OPA_COVER, 0);
     lv_obj_set_style_text_color(r, lv_color_hex(PAL->text), 0);
     lv_obj_set_style_text_font(r, &lv_font_montserrat_14, 0);
     lv_obj_set_style_pad_hor(r, 6, 0);
+    lv_obj_add_flag(r, LV_OBJ_FLAG_CLICK_FOCUSABLE);
+    lv_obj_remove_flag(r, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(r, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+    lv_obj_t *lbl = lv_label_create(r);
+    lv_label_set_text(lbl, line);
+    lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 0, 0);
+    if (s_rptr_mgmt_group) lv_group_add_obj(s_rptr_mgmt_group, r);
     line = strtok(nullptr, "\n");
   }
 }
@@ -3128,6 +3125,17 @@ extern "C" void ui_on_rptr_login_result(const uint8_t *pub_key, bool success) {
   if (!s_rptr_login_valid) return;
   if (memcmp(s_rptr_login_contact.pub_key, pub_key, 32) != 0) return;
   if (success) {
+    // Persist password for this repeater
+    {
+      Preferences _p;
+      char _nvskey[16];
+      snprintf(_nvskey, sizeof(_nvskey), "rp_%02x%02x%02x%02x", pub_key[0], pub_key[1], pub_key[2],
+               pub_key[3]);
+      if (_p.begin("tpager", false)) {
+        _p.putString(_nvskey, s_rptr_pw_buf);
+        _p.end();
+      }
+    }
     rptr_login_close();
     rptr_mgmt_open();
   } else {
@@ -3142,6 +3150,7 @@ extern "C" void ui_on_rptr_vars(const uint8_t *pub_key, const char *csv) {
   if (!s_rptr_in_mgmt) return;
   if (memcmp(s_rptr_mgmt_key, pub_key, 32) != 0) return;
   rptr_mgmt_populate_vars(csv);
+  if (ui_repeater_get_stats) ui_repeater_get_stats(s_rptr_mgmt_key);
 }
 
 extern "C" void ui_on_rptr_set_result(const uint8_t *pub_key, bool success) {
@@ -4918,6 +4927,35 @@ void UITask::loop() {
     s_repeaters_next_refresh = millis() + 5000;
     bool login_open = s_rptr_login_popup && !lv_obj_has_flag(s_rptr_login_popup, LV_OBJ_FLAG_HIDDEN);
     if (!login_open) repeaters_list_populate();
+  }
+  // Deferred NVS read for saved password — done here (outside LVGL callback) to
+  // avoid delaying popup creation and causing spurious cancel-button events.
+  if (s_rptr_pw_load_needed && s_rptr_login_valid) {
+    s_rptr_pw_load_needed = false;
+    Preferences _p;
+    char _nvskey[16];
+    snprintf(_nvskey, sizeof(_nvskey), "rp_%02x%02x%02x%02x", s_rptr_login_contact.pub_key[0],
+             s_rptr_login_contact.pub_key[1], s_rptr_login_contact.pub_key[2],
+             s_rptr_login_contact.pub_key[3]);
+    if (_p.begin("tpager", true)) {
+      String _saved = _p.getString(_nvskey, "");
+      _p.end();
+      if (_saved.length() > 0 && _saved.length() < sizeof(s_rptr_pw_buf)) {
+        strncpy(s_rptr_pw_buf, _saved.c_str(), sizeof(s_rptr_pw_buf) - 1);
+        s_rptr_pw_buf[sizeof(s_rptr_pw_buf) - 1] = 0;
+        s_rptr_pw_len = (int)strlen(s_rptr_pw_buf);
+        if (s_rptr_pw_label) {
+          if (s_rptr_pw_len > 0) {
+            static char mask[sizeof(s_rptr_pw_buf)];
+            memset(mask, '*', s_rptr_pw_len);
+            mask[s_rptr_pw_len] = 0;
+            lv_label_set_text(s_rptr_pw_label, mask);
+          } else {
+            lv_label_set_text(s_rptr_pw_label, "_");
+          }
+        }
+      }
+    }
   }
   // Screen-off gate for the Map work. map_follow + status refresh drive SD tile
   // reads + PNG decode over the SPI bus shared with the radio; running them

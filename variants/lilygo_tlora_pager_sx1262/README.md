@@ -52,7 +52,7 @@ Pulls in `helpers/ui/LGFXDisplay.cpp` and the variant's own
 | # | Tile | Description |
 |---|------|-------------|
 | 0 | Radio | LoRa radio settings: frequency, SF, BW, CR, TX power, node name, scope, RX boost, path hash. |
-| 1 | Channels | Hashtag channel list. Add/delete channels, open a chat view, long-press a row to mute/unmute. |
+| 1 | Channels | Hashtag and private channel list. Add/delete channels, open a chat view, long-press a row to mute/unmute. Clicking "+ Add channel" opens a type picker: **Hashtag** (public, key derived from name) or **Private** (user-supplied 32-hex key, interoperable with the MeshCore app). Private channels show a closed-eye icon. The key entry popup includes a **RAND** button to generate a random key on-device. |
 | 2 | DM | Direct messages. Select a favourite contact to open a per-contact chat view. |
 | 3 | Contacts | Favourite contacts. Click to open DM or unmark as favourite. |
 | 4 | Discovered | All recently heard nodes (50-entry LRU). Add to contacts, mark as favourite, or send a direct/flooded advert. |

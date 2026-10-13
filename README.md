@@ -19,21 +19,21 @@
 
 ---
 
-The **LilyGo T-LoRa Pager** is a pocket LoRa handheld with a colour IPS screen, a QWERTY keyboard and a scroll-wheel. This firmware turns it into a fully **standalone MeshCore node** — read and write channel messages and direct messages, watch nodes appear on an offline map, and manage the radio, all on the device itself. No phone, no WiFi, no internet required.
+The **LilyGo T-LoRa Pager** is a pocket LoRa handheld with a colour IPS screen, a QWERTY keyboard and a scroll-wheel. This firmware turns it into a fully **standalone MeshCore node**: read and write channel messages and direct messages, watch nodes appear on an offline map, and manage the radio, all on the device itself. No phone, no WiFi, no internet required.
 
 ## ✨ Features
 
-- **Tile carousel UI** — Radio · Channels · DM · Contacts · Discovered · Advert · Map · Settings · About · Sat Test · Recent, driven by the scroll-wheel and keyboard; no companion app needed.
-- **Channels & direct messages** — hashtag channels and per-contact DMs with an on-screen keyboard, unread badges, and chat history.
-- **Per-channel mute** — long-press any channel row (including Public) to mute/unmute notifications.
-- **GPS + offline maps** — live position fix, satellite test screen, and a pannable/zoomable offline map rendered from SD-card tiles, with your position and heard nodes drawn on it.
+- **Tile carousel UI**: Radio · Channels · DM · Contacts · Discovered · Advert · Map · Settings · About · Sat Test · Recent, driven by the scroll-wheel and keyboard; no companion app needed.
+- **Channels & direct messages**: hashtag channels and per-contact DMs with an on-screen keyboard, unread badges, and chat history.
+- **Per-channel mute**: long-press any channel row (including Public) to mute/unmute notifications.
+- **GPS + offline maps**: live position fix, satellite test screen, and a pannable/zoomable offline map rendered from SD-card tiles, with your position and heard nodes drawn on it.
 - **RSSI + noise floor + GPS status** displayed in the top status bar.
-- **GPS off by default** — enable in Settings when needed; duty-cycles automatically (30 s on / 270 s off) to save battery.
-- **Accurate battery %** — reads the BQ27220 coulomb counter; calibration reference persists across reboots via NVS.
-- **Side button** — short press = screen on/off; long press (≥ 600 ms) = navigate back.
-- **Sounds only for messages** — DMs and channel messages play a tone; adverts, ACKs, and new-node discoveries are silent.
-- **On-device radio settings** — frequency, SF, BW, CR, TX power, node name, all editable from the UI.
-- **Dark / light themes + brightness control** — persist across reboots.
+- **GPS off by default**: enable in Settings when needed; duty-cycles automatically (30 s on / 270 s off) to save battery.
+- **Accurate battery %**: reads the BQ27220 coulomb counter; calibration reference persists across reboots via NVS.
+- **BOOT button sound toggle**: short press = mute/unmute sound alerts (top-bar icon + toast); long press (>=600 ms) = screen off.
+- **Sounds only for messages**: DMs and channel messages play a tone; adverts, ACKs, and new-node discoveries are silent.
+- **On-device radio settings**: frequency, SF, BW, CR, TX power, node name, all editable from the UI.
+- **Dark / light themes + brightness control** - persist across reboots.
 
 ## 📟 Hardware
 
@@ -41,7 +41,7 @@ The **LilyGo T-LoRa Pager** is a pocket LoRa handheld with a colour IPS screen, 
 |---|---|
 | **Board** | LilyGo T-LoRa Pager (**SX1262** variant) |
 | **MCU** | Espressif ESP32-S3 (with PSRAM) |
-| **Radio** | Semtech SX1262 — sub-GHz |
+| **Radio** | Semtech SX1262 (sub-GHz) |
 | **Display** | Sitronix ST7796 IPS LCD (480 × 222) |
 | **Input** | TCA8418 QWERTY keyboard + rotary encoder |
 | **Other** | GPS, BQ25896 charger, BQ27220 fuel gauge, XL9555 IO expander, microSD |
@@ -77,19 +77,19 @@ See [`variants/lilygo_tlora_pager_sx1262/README.md`](variants/lilygo_tlora_pager
 
 The pager has three buttons along the bottom edge:
 
-| Button | Short press | Long press (≥ 600 ms) | Very long press (≥ 3 s) |
+| Button | Short press | Long press (>=600 ms) | Very long press (>=3 s) |
 |--------|-------------|----------------------|------------------------|
-| Left | Reboot | — | — |
-| Middle | Screen on / off | Navigate back | — |
-| Right | Power on (from off) | — | — |
+| Left (RST) | Hard reset | n/a | n/a |
+| Middle (BOOT) | Toggle sound on/off (wakes screen if off) | Screen off | n/a |
+| Right (PWR) | Power on from off | n/a | n/a |
 | **Scroll wheel click** | Confirm / select | Navigate back | **Power off** (home screen only) |
 
-> Power-off only triggers from the home carousel — holding the scroll wheel inside a chat or subscreen just navigates back.
+> Power-off only triggers from the home carousel. Holding the scroll wheel inside a chat or subscreen just navigates back.
 
 ## 📚 Documentation
 
-- [Variant README](variants/lilygo_tlora_pager_sx1262/README.md) — build environments, pin map, UI navigation, flashing.
-- [Offline map tiles](variants/lilygo_tlora_pager_sx1262/MAPS.md) — how to prepare SD-card map tiles.
+- [Variant README](variants/lilygo_tlora_pager_sx1262/README.md) - build environments, pin map, UI navigation, flashing.
+- [Offline map tiles](variants/lilygo_tlora_pager_sx1262/MAPS.md) - how to prepare SD-card map tiles.
 
 ## 🌐 Credits & upstream
 
@@ -97,4 +97,4 @@ This is a port of **[CJvanSoest/meshcore-lilygo-pager-LR1121](https://github.com
 
 ## 📄 License
 
-Released under the **MIT License** — see [`license.txt`](license.txt).
+Released under the **MIT License** - see [`license.txt`](license.txt).

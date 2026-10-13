@@ -35,7 +35,7 @@ Three buttons sit along the bottom edge of the Pager (left to right):
 Pulls in `helpers/ui/LGFXDisplay.cpp` and the variant's own
 `TPagerST7796Display.h`, `target.cpp`, `TPagerLVGL.cpp` and `UITask.cpp`.
 
-## Navigation (companion build, LVGL UI)
+## Navigation
 
 - **Encoder rotation** scrolls / changes value. Direction is inverted
   while inside sub-screens (vertical lists) so "rotate up" moves the
@@ -47,9 +47,22 @@ Pulls in `helpers/ui/LGFXDisplay.cpp` and the variant's own
   cancels without applying; from a sub-screen it returns to the
   carousel.
 
-The companion `UITask` is replaced by our LVGL variant via the
-`build_src_filter` exclusion in `platformio.ini` (the include path order
-also ensures our `UITask.h` shadows the upstream one).
+## Tile reference
+
+| # | Tile | Description |
+|---|------|-------------|
+| 0 | Radio | LoRa radio settings: frequency, SF, BW, CR, TX power, node name, scope, RX boost, path hash. |
+| 1 | Channels | Hashtag channel list. Add/delete channels, open a chat view, long-press a row to mute/unmute. |
+| 2 | DM | Direct messages. Select a favourite contact to open a per-contact chat view. |
+| 3 | Contacts | Favourite contacts. Click to open DM or unmark as favourite. |
+| 4 | Discovered | All recently heard nodes (50-entry LRU). Add to contacts, mark as favourite, or send a direct/flooded advert. |
+| 5 | Advert | Send a self-advert (direct or flood). |
+| 6 | Map | Offline map rendered from SD-card XYZ tiles. See [MAPS.md](MAPS.md). |
+| 7 | Settings | Global toggles: GPS enable, theme, brightness. |
+| 8 | About | Firmware version and node info. |
+| 9 | Sat Test | Live GPS satellite reception diagnostic. |
+| 10 | Recent | Recently heard nodes. |
+| 11 | Repeaters | Heard repeaters sorted by RSSI. Long-press to log in and view management info. |
 
 ## Pin map / hardware
 
@@ -74,23 +87,30 @@ Mirrors `Xinyuan-LilyGO/LilyGoLib-PlatformIO/variants/lilygo_tlora_pager/pins_ar
 | QWERTY   | tap a letter key                    | the silk-screened letter (a-z, Enter, Space, Backspace) |
 | Symbol   | hold the **orange FN key** next to Z | the silk-screened symbol on the same key            |
 
-Symbol-layer map (matches the physical hardware labels — taken from
-LilyGoLib's `LilyGo_LoRa_Pager.cpp` `symbol_map`):
+Symbol-layer map (matches the physical hardware labels):
 
 ```
 FN+Q..P → 1 2 3 4 5 6 7 8 9 0
 FN+A..L → * / + - = : ' " @
 FN+Z..M → _ $ ; ? ! , .
-FN+Space → #         (our addition — needed for MeshCore channel names)
+FN+Space → #         (needed for MeshCore channel names)
 ```
 
-The TCA8418 FIFO is drained from `UITask::loop` via the
-`variant_loop()` hook in `target.cpp`. Upstream `examples/companion_radio`
-doesn't call any variant hook on its own, so we drive it explicitly.
+The unmarked key right of M (raw 29) is a sticky caps-lock toggle.
 
-The Messages tile is an input-test screen that echoes the live keystroke
-buffer — handy for verifying the keyboard end-to-end without a host
-serial monitor.
+## Repeaters tile
+
+The Repeaters tile (index 11) lists all heard nodes with `ADV_TYPE_REPEATER`,
+sorted strongest RSSI first.
+
+- **Long-press** a row to open the login popup for that repeater.
+- Passwords are masked with asterisks and persisted to NVS per-repeater
+  (keyed by the first 4 bytes of the pub_key). On subsequent visits the
+  password auto-fills.
+- After a successful login the **management screen** appears with two sections:
+  - **Info** — firmware version, node name, owner info.
+  - **Stats** — battery voltage, uptime, RX/TX packet counts.
+- Encoder scrolls through all rows on the management screen.
 
 ## Known LVGL caveats
 
@@ -113,187 +133,9 @@ hands doesn't have to rediscover them:
   time. It bumps the step to 10, which collapses to the range bounds
   for small ranges (SF 5..12 only shows 5 or 12).
 
-## Status as of S3.3 phase 2e (all 2.x phases done)
+## Upcoming
 
-- Tile carousel with 6 tiles, encoder navigation, click/long-press semantics.
-- Radio sub-screen renders the live `NodePrefs` values in a two-column
-  list (label + value, right-aligned) with thin row separators.
-- Editor matrix per row:
-  - `Freq` → text-input popup (type digits + `.` via FN+QWERTY symbol
-    layer; Enter or encoder-click commits; long-press cancels; range
-    validated to 400.0…960.0 MHz)
-  - `SF`, `CR`, `TX power` → spinbox popup (encoder rotates value,
-    click saves)
-  - `BW` → dropdown over 10 standard LoRa bandwidths (7.81 … 500 kHz)
-  - `Path hash` → dropdown over the three valid path-hash modes
-    (1 byte / 2 bytes / 3 bytes)
-  - `RX boost` → inline toggle (no popup)
-  - `Scope` → text-input popup (letters + digits + `-`), commits via
-    `ui_apply_default_scope()` which derives the HMAC key from
-    `"#"+name` and writes NodePrefs. Empty name = wildcard (no scope).
-- Apply path calls the weak bridge `ui_apply_radio_changes()` from
-  `examples/companion_radio/main.cpp` (`radio_set_params` +
-  `radio_set_tx_power` + `savePrefs`). Path-hash changes only need the
-  `savePrefs` (consumed inline on every send).
-- Long-press in the popup cancels without applying; dropdown list is
-  explicitly closed and the group drops out of edit mode so the
-  encoder doesn't hang.
-- The list auto-scrolls to keep the focused row in view
-  (`LV_OBJ_FLAG_SCROLL_ON_FOCUS`).
-- Persistent top-row header (parented to the screen, not the carousel)
-  shows: **node name** (left, orange) — **DC X.X% Ns/Ms** (centre,
-  green→amber→red as the leaky bucket drains) — **battery %** (right,
-  read from the BQ27220 SoC register `0x2C`). Header stays visible on
-  every sub-screen, so DC and battery never require leaving the current
-  tile.
-
-## Channels (S3.4)
-
-* Messages tile hosts a channels list. Top row is "+ Add channel";
-  remaining rows show the joined channels (`Public` is pre-populated by
-  MyMesh; everything else gets a `#` prefix in the UI).
-* "+ Add channel" opens a text-input popup. Allowed chars are
-  lowercase letters + digits + `-`. The 16-byte channel secret is
-  derived as `SHA256("#"+name)[0..15]` (MeshCore hashtag convention)
-  and stored via `MyMesh::uiAddHashtagChannel()` — that helper walks
-  `channels[]` for an empty slot so existing channels are never
-  overwritten (the upstream `addChannel` would otherwise reuse slot 1
-  after a reboot, because `loadChannels` doesn't bump `num_channels`).
-* `MAX_GROUP_CHANNELS=40` on this build (set in `platformio.ini`).
-* Clicking on a channel row opens a **chat view** for that channel:
-  - Top ~60% of the screen: scrollable history label rendered from a
-    shared 32-entry in-memory ring buffer. Newest message at the
-    bottom; encoder rotation scrolls the history.
-  - Bottom: orange compose bar showing the tail of the message buffer
-    (last ~48 chars, with leading `…` when truncated). A separate
-    counter `X/120` above it goes red once you're within 10 chars of
-    the limit.
-  - Type via QWERTY + FN symbol layer (FN+Space gives `#`). Enter
-    sends via `sendGroupMessage`; the local copy is pushed into the
-    ring buffer with a `(me):` prefix so it appears immediately.
-  - Long-press goes back to the channels list; another long-press
-    returns to the carousel.
-* Receive integration: `MyMesh::onChannelMessageRecv` calls a weak
-  `ui_on_channel_message(channel_idx, ts, text)` hook (after the
-  existing `_ui->newMsg`); the variant UI implements it to push into
-  the ring buffer and re-render the history if the matching channel
-  is currently open.
-
-## Contacts (S3.5)
-
-* Contacts tile shows every node we've heard an advert from, in a
-  scrollable list with column headers `role | name | SNR | RSSI |
-  dist | age`.
-* Roles use 4-letter lowercase labels chosen to share a column width:
-  `chat` / `rptr` / `room` / `sens`.
-* Long names auto-scroll horizontally inside their column
-  (`LV_LABEL_LONG_SCROLL_CIRCULAR`), e.g. `NL-MET-PLANTAGE-RPT`
-  ticker-tapes through the visible name slot.
-* SNR + RSSI come from a 64-entry LRU cache keyed by the first 8
-  bytes of the contact's pub_key. The cache is updated by a new
-  weak `ui_on_advert_received(pub_key, snr, rssi)` hook appended
-  to `BaseChatMesh::onAdvertRecv` — RSSI is read from
-  `_radio->getLastRSSI()` on the same packet. Contacts we haven't
-  heard from this session show `-`.
-* Distance uses the haversine formula between our own GPS
-  (`SensorManager::node_lat/lon`) and the contact's advertised
-  lat/lon. Renders as `m` / `N.Nk` / `Nk`, or `-` if either side
-  has no fix.
-* Age is the relative time since the last advert, formatted as
-  `Ns` / `Nm` / `Nh` / `Nd`. List auto-refreshes every 5 s while
-  the tile is open.
-* A parallel-array approach indexed by `MAX_CONTACTS` (=350) blew
-  the DRAM segment by 72 bytes — the 64-entry LRU cache uses
-  ~1 KB instead and fits comfortably.
-
-## S3.6 — Communication-UI restructure (done 2026-06-02)
-
-Tile carousel reworked into the final layout:
-
-```
-Radio → Channels → DM → Contacts(★) → Discovered → Map → Settings → About
-```
-
-- **a (`2f4a41b0`)** — Messages tile renamed to Channels (label only).
-- **b (`249a2012`)** — Discovered tile + new weak hook
-  `ui_on_advert_seen` fired BEFORE the auto-add filter in
-  `BaseChatMesh::onAdvertRecv`, so chat-type adverts that aren't
-  auto-added still surface in the UI. 50-entry PSRAM-backed LRU
-  ring keyed by pub_key. Click a row → popup `Add to contacts /
-  Add as favorite / Cancel` via `MyMesh::uiAddContact()`. Two
-  action rows at the top: `+ Send advert (direct)` and
-  `+ Send advert (flood)` → `MyMesh::uiSendSelfAdvert(flood)`.
-- **c (`c38d9d42`)** — Contacts filtered to favorites
-  (`flags & 0x01`). Click → `Open DM / Unmark favorite / Cancel`.
-  Open DM wires straight into `dm_chat_view_open` after looking
-  up the contact name.
-- **d.1 (`70c4574d`)** — DM tile + per-contact chat view. 32-entry
-  PSRAM ring tagged by pub_key[:8]. `s_dm_mode` flag flips
-  `chat_history_render` between channel-ring and DM-ring sources;
-  Enter routes through `ui_send_dm()` or `ui_send_group_text()`.
-  Receive via new `ui_on_dm_message` weak hook in
-  `MyMesh::onMessageRecv`. NOT persisted across reboots — that's
-  the d.2 follow-up below.
-
-Adjustments in subsequent rounds (still 2026-06-02):
-
-- `qio_opi` PSRAM mode rejected by this board; switched to
-  `qio_qspi`. Verified: `[BOOT] psramFound=1 psram_size=8386295`.
-  All PSRAM-backed buffers (chat ring, DM ring, Discovered cache,
-  per-contact pubkey caches) now actually allocate.
-- "Delete channel" — Channel-row click on non-Public opens
-  `Open chat / Delete channel / Cancel`. `MyMesh::uiDeleteChannel`
-  zeroes the target slot then **compacts** later entries down so
-  populated-idx == slot-idx remains true.
-- TCA8418 caps-lock — unmarked key right of M (raw 29) is a sticky
-  caps-lock toggle.
-- Chat-history coloring — `s_chat_history` is now an `lv_spangroup`
-  (`LV_SPAN_MODE_BREAK`). Each line renders as: green sender
-  prefix (`0x55cc66`) + blue `@[mention]` tokens (`0x5ab8ff`) +
-  grey body (`0xc0c8d0`). Mention parser accepts both
-  `@[name]` (MeshCore wire format) and bare `@name`.
-- DC counter — switched from leaky-bucket "remaining" delta to
-  cumulative `getTotalAirTime()` at 100 ms resolution. Monotonic,
-  so every advert / chat send visibly moves the seconds counter.
-- Radio settings grew a 9th row "Name" (idx 8) — text input that
-  writes `NodePrefs.node_name` via `MyMesh::uiSetNodeName`.
-- Popup buttons (disc / con / ch menu) use a high-contrast focus
-  state via `style_popup_button` helper. List rows keep the
-  original subtle focus (changing them broke perceived scroll).
-- Header pager-name recolored from orange to grey (matches DC).
-
-## Repeaters (S3.7)
-
-* Repeaters tile lists all nodes heard with `ADV_TYPE_REPEATER`, sorted
-  strongest RSSI first (falls back to most-recently-heard).
-* **Long-press** a row to open the login popup for that repeater.
-* **Login popup** — password is masked with asterisks while typing and
-  when loaded from NVS. Correct password dismisses the popup and opens
-  the management screen; wrong password shows an inline error. Password
-  is persisted to NVS per-repeater (keyed by first 4 bytes of pub_key)
-  on first successful login, so subsequent logins auto-fill.
-* **Management screen** — populated via two sequential radio requests:
-  - `REQ_TYPE_GET_OWNER_INFO (0x07)` returns firmware version, node name
-    and owner info as newline-separated text; shown in an **Info** section.
-  - `REQ_TYPE_GET_STATUS (0x01)` returns a `RepeaterStats` struct;
-    battery mV, uptime and RX/TX packet counts are shown in a **Stats**
-    section.
-  - Requests are chained (stats fires after info arrives) to avoid tag
-    collision on `ui_pending_req`.
-  - Encoder scrolls through all rows via the management group.
-
-## TODO (next phases)
-- **S3.6d.2** — SD-persisted encrypted DM store (AES-256-CTR with
-  key = `SHA256(efuse_mac || passphrase)`). Files
-  `/messages/<sha256(pub_key)[:16]>.jsonl` on microSD. Needs
-  pin-map + SD bringup for this board (not yet defined in
-  `target.cpp`); recommended to do in a focused session.
-- **S3.5 follow-up** — favourite-first eviction policy when the
-  350-contact cap is hit (favourites stay, oldest non-favourite
-  gets reused).
-- **S3.8** — map renderer (XYZ raster tiles from microSD, 5 base
-  sources: OSM, PDOK for NL, OpenTopoMap, CyclOSM, Stamen Toner).
-  See `MAPS.md`. Needs SD bringup (same prereq as d.2).
-- **Misc smaller** — Settings and Map tiles are still placeholder
-  bodies; Settings could host global toggles (manual_add_contacts,
-  GPS enable, audio mute, etc.).
+- SD-persisted DM history (needs SD bringup in `target.cpp`)
+- Map tile renderer from SD card (see [MAPS.md](MAPS.md); needs SD bringup)
+- Settings tile: global toggles (GPS enable, theme, brightness)
+- Favourite-first contact eviction when the 350-contact cap is hit

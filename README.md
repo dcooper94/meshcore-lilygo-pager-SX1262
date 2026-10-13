@@ -23,7 +23,7 @@ The **LilyGo T-LoRa Pager** is a pocket LoRa handheld with a colour IPS screen, 
 
 ## ✨ Features
 
-- **Tile carousel UI**: Radio · Channels · DM · Contacts · Discovered · Advert · Map · Settings · About · Sat Test · Recent, driven by the scroll-wheel and keyboard; no companion app needed.
+- **Tile carousel UI**: Radio · Channels · DM · Contacts · Discovered · Advert · Map · Settings · About · Sat Test · Recent · Repeaters, driven by the scroll-wheel and keyboard; no companion app needed.
 - **Channels & direct messages**: hashtag channels and per-contact DMs with an on-screen keyboard, unread badges, and chat history.
 - **Per-channel mute**: long-press any channel row (including Public) to mute/unmute notifications.
 - **GPS + offline maps**: live position fix, satellite test screen, and a pannable/zoomable offline map rendered from SD-card tiles, with your position and heard nodes drawn on it.
@@ -34,6 +34,7 @@ The **LilyGo T-LoRa Pager** is a pocket LoRa handheld with a colour IPS screen, 
 - **Sounds only for messages**: DMs and channel messages play a tone; adverts, ACKs, and new-node discoveries are silent.
 - **On-device radio settings**: frequency, SF, BW, CR, TX power, node name, all editable from the UI.
 - **Dark / light themes + brightness control** - persist across reboots.
+- **Repeaters**: browse heard repeater nodes sorted by signal strength; long-press to log in with a password (auto-saved per repeater) and view live stats — firmware version, battery, uptime, and RX/TX counts.
 
 ## 📟 Hardware
 
@@ -50,18 +51,27 @@ The **LilyGo T-LoRa Pager** is a pocket LoRa handheld with a colour IPS screen, 
 
 1. Download `tpager-sx1262-firmware.zip` from the [**Releases**](https://github.com/dcooper94/meshcore-lilygo-pager-SX1262/releases/latest) page and extract it.
 2. Hold **BOOT**, tap **RST**, release **BOOT** to enter download mode.
-3. Flash with [esptool](https://github.com/espressif/esptool):
+3. Split and flash with [esptool](https://github.com/espressif/esptool) (the split avoids a no-stub timeout on ESP32-S3):
 
 ```bash
+# Split the binary
+dd if=firmware.bin of=/tmp/fw_part1.bin bs=1 count=524288
+dd if=firmware.bin of=/tmp/fw_part2.bin bs=1 skip=524288
+
+# Part 1
+python -m esptool --chip esp32s3 --port /dev/ttyACM0 --baud 115200 \
+  --no-stub --before default_reset --after no_reset \
+  write_flash --flash_mode dio --flash_freq 80m --flash_size 16MB \
+  0x10000 /tmp/fw_part1.bin
+
+# Part 2 (device stays in bootloader after part 1)
 python -m esptool --chip esp32s3 --port /dev/ttyACM0 --baud 115200 \
   --no-stub --before default_reset --after hard_reset \
   write_flash --flash_mode dio --flash_freq 80m --flash_size 16MB \
-  0x0000 bootloader.bin 0x8000 partitions.bin 0x10000 firmware.bin
+  0x90000 /tmp/fw_part2.bin
 ```
 
 Replace `/dev/ttyACM0` with your port (`COM3`, `/dev/tty.usbmodem*`, etc.).
-
-See the README inside the zip for app-only update instructions (faster, preserves your settings).
 
 ## 🛠️ Build from source
 

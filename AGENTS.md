@@ -71,10 +71,9 @@
    git checkout main && git pull personal main
    pio run -e T_LoRa_Pager_SX1262_companion_radio_usb   # build release firmware
    # package zip (see What lives where)
-   dd if=.pio/build/T_LoRa_Pager_SX1262_companion_radio_usb/firmware.bin \
-      of=/tmp/tpager-firmware/tpager-sx1262-vX.Y.Z.bin
-   cp /tmp/tpager-firmware/tpager-sx1262-vX.Y.Z.bin /tmp/tpager-firmware/firmware.bin
-   cd /tmp/tpager-firmware && zip -j /tmp/tpager-sx1262-firmware.zip *.bin && cd -
+   cp .pio/build/T_LoRa_Pager_SX1262_companion_radio_usb/firmware.bin \
+      /tmp/tpager-firmware/firmware.bin
+   cd /tmp/tpager-firmware && zip -j /tmp/tpager-sx1262-firmware.zip firmware.bin && cd -
    git tag vX.Y.Z
    git push personal vX.Y.Z
    gh release create vX.Y.Z \

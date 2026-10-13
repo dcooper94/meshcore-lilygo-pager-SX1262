@@ -167,6 +167,13 @@ extern "C" void ui_on_dm_message(const uint8_t* pub_key, uint32_t timestamp,
 #define AUTO_ADD_ROOM_SERVER      (1 << 3)  // 0x08 - auto-add Room Server (ADV_TYPE_ROOM)
 #define AUTO_ADD_SENSOR           (1 << 4)  // 0x10 - auto-add Sensor (ADV_TYPE_SENSOR)
 
+// UI repeater management callbacks (S3.7) — declared weak so they resolve to
+// no-ops when UITask is not linked (e.g. non-pager companion targets).
+extern "C" void ui_on_rptr_login_result(const uint8_t *pub_key, bool success) __attribute__((weak));
+extern "C" void ui_on_rptr_vars(const uint8_t *pub_key, const char *csv) __attribute__((weak));
+extern "C" void ui_on_rptr_set_result(const uint8_t *pub_key, bool success) __attribute__((weak));
+extern "C" void ui_on_rptr_stats(const uint8_t *pub_key, const char *text) __attribute__((weak));
+
 void MyMesh::writeOKFrame() {
   uint8_t buf[1];
   buf[0] = RESP_CODE_OK;
@@ -778,6 +785,55 @@ void MyMesh::onContactResponse(const ContactInfo &contact, const uint8_t *data, 
     memcpy(&out_frame[i], &data[4], len - 4);
     i += (len - 4);
     _serial->writeFrame(out_frame, i);
+  }
+
+  // UI-initiated repeater management callbacks (S3.7)
+  if (ui_pending_login && memcmp(&ui_pending_login, contact.id.pub_key, 4) == 0) {
+    uint8_t saved_key[32];
+    memcpy(saved_key, ui_pending_login_key, 32);
+    ui_pending_login = 0;
+    bool success = (len > 4 && (memcmp(&data[4], "OK", 2) == 0 || data[4] == RESP_SERVER_LOGIN_OK));
+    if (ui_on_rptr_login_result) ui_on_rptr_login_result(saved_key, success);
+  }
+
+  if (len > 4 && tag == ui_pending_req) {
+    uint8_t saved_key[32];
+    memcpy(saved_key, ui_pending_req_key, 32);
+    uint8_t rtype = ui_pending_req_type;
+    ui_pending_req = 0;
+    const uint8_t *payload = &data[4];
+    uint8_t plen = len - 4;
+    if (rtype == 0 && ui_on_rptr_vars) {
+      // CMD_GET_CUSTOM_VARS response: [RESP_CODE_CUSTOM_VARS] "name:val,..."
+      const char *csv = (plen > 1 && payload[0] == RESP_CODE_CUSTOM_VARS)
+                            ? (const char *)(payload + 1) : (const char *)payload;
+      // Ensure null-termination via a local copy
+      static char vars_buf[160];
+      size_t copy_len = (plen > 1 && payload[0] == RESP_CODE_CUSTOM_VARS) ? plen - 1 : plen;
+      if (copy_len >= sizeof(vars_buf)) copy_len = sizeof(vars_buf) - 1;
+      memcpy(vars_buf, csv, copy_len);
+      vars_buf[copy_len] = 0;
+      ui_on_rptr_vars(saved_key, vars_buf);
+    } else if (rtype == 1 && ui_on_rptr_set_result) {
+      // CMD_SET_CUSTOM_VAR response: RESP_CODE_OK or RESP_CODE_ERR
+      bool ok = (plen > 0 && payload[0] == RESP_CODE_OK);
+      ui_on_rptr_set_result(saved_key, ok);
+    } else if (rtype == 2 && ui_on_rptr_stats) {
+      // CMD_GET_STATS response: binary stats struct — format as text for the UI
+      static char stats_buf[160];
+      int pos = 0;
+      if (plen >= 10 && payload[0] == RESP_CODE_STATS) {
+        uint16_t batt_mv;  memcpy(&batt_mv, &payload[2], 2);
+        uint32_t uptime;   memcpy(&uptime,  &payload[4], 4);
+        uint8_t  q_len = (plen > 9) ? payload[9] : 0;
+        pos += snprintf(stats_buf + pos, sizeof(stats_buf) - pos,
+                        "Battery: %u mV\nUptime: %us\nQ: %u",
+                        batt_mv, uptime, q_len);
+      } else {
+        snprintf(stats_buf, sizeof(stats_buf), "(no stats)");
+      }
+      ui_on_rptr_stats(saved_key, stats_buf);
+    }
   }
 }
 
@@ -2317,4 +2373,55 @@ bool MyMesh::advert() {
 // To check if there is pending work
 bool MyMesh::hasPendingWork() const {
   return _mgr->getOutboundTotal() > 0 || dirty_contacts_expiry != 0;
+}
+
+// ---------- UI repeater management (S3.7) ------------------------------------
+
+bool MyMesh::uiSendLogin(const uint8_t *pub_key, const char *pw) {
+  ContactInfo *ci = lookupContactByPubKey(pub_key, PUB_KEY_SIZE);
+  ContactInfo tmp;
+  if (!ci) {
+    memset(&tmp, 0, sizeof(tmp));
+    memcpy(tmp.id.pub_key, pub_key, PUB_KEY_SIZE);
+    tmp.out_path_len = OUT_PATH_UNKNOWN;
+    tmp.type = ADV_TYPE_NONE;
+    tmp.lastmod = getRTCClock()->getCurrentTime();
+    ci = &tmp;
+  }
+  uint32_t est_timeout;
+  int result = sendLogin(*ci, pw, est_timeout);
+  if (result == MSG_SEND_FAILED) return false;
+  ui_pending_login = 0;
+  memcpy(&ui_pending_login, pub_key, 4);
+  memcpy(ui_pending_login_key, pub_key, PUB_KEY_SIZE);
+  return true;
+}
+
+bool MyMesh::uiSendBinaryReq(const uint8_t *pub_key, uint8_t cmd_byte,
+                              const uint8_t *extra, uint8_t extra_len,
+                              uint8_t req_type) {
+  ContactInfo *ci = lookupContactByPubKey(pub_key, PUB_KEY_SIZE);
+  ContactInfo tmp;
+  if (!ci) {
+    memset(&tmp, 0, sizeof(tmp));
+    memcpy(tmp.id.pub_key, pub_key, PUB_KEY_SIZE);
+    tmp.out_path_len = OUT_PATH_UNKNOWN;
+    tmp.type = ADV_TYPE_NONE;
+    tmp.lastmod = getRTCClock()->getCurrentTime();
+    ci = &tmp;
+  }
+  uint8_t payload[64];
+  payload[0] = cmd_byte;
+  uint8_t plen = 1;
+  if (extra && extra_len > 0 && extra_len < (uint8_t)(sizeof(payload) - 1)) {
+    memcpy(&payload[1], extra, extra_len);
+    plen += extra_len;
+  }
+  uint32_t tag, est_timeout;
+  int result = sendRequest(*ci, payload, plen, tag, est_timeout);
+  if (result == MSG_SEND_FAILED) return false;
+  ui_pending_req = tag;
+  ui_pending_req_type = req_type;
+  memcpy(ui_pending_req_key, pub_key, PUB_KEY_SIZE);
+  return true;
 }

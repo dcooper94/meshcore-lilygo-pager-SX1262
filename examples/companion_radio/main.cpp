@@ -885,6 +885,39 @@ extern "C" void ui_apply_default_scope(const char* name) {
   the_mesh.savePrefs();
 }
 
+// Repeater management bridges (S3.7). Forward-declared with weak attribute in
+// UITask.cpp; implementations call the new uiSendLogin/uiSendBinaryReq methods
+// added to MyMesh.h so the mesh layer owns all pending-state bookkeeping.
+static const uint8_t kCmdGetCustomVars = 40;
+static const uint8_t kCmdSetCustomVar  = 41;
+static const uint8_t kCmdGetStats      = 56;
+extern "C" bool ui_repeater_login(const uint8_t *pub_key, const char *pw) {
+  if (!pub_key || !pw) return false;
+  return the_mesh.uiSendLogin(pub_key, pw);
+}
+
+extern "C" bool ui_repeater_get_vars(const uint8_t *pub_key) {
+  if (!pub_key) return false;
+  return the_mesh.uiSendBinaryReq(pub_key, kCmdGetCustomVars, nullptr, 0, 0);
+}
+
+extern "C" bool ui_repeater_set_var(const uint8_t *pub_key, const char *name,
+                                    const char *value) {
+  if (!pub_key || !name || !value) return false;
+  // Payload: "name:value\0" appended after the CMD byte
+  uint8_t extra[64];
+  int n = snprintf((char *)extra, sizeof(extra), "%s:%s", name, value);
+  if (n <= 0 || n >= (int)sizeof(extra)) return false;
+  return the_mesh.uiSendBinaryReq(pub_key, kCmdSetCustomVar,
+                                   extra, (uint8_t)(n + 1), 1);
+}
+
+extern "C" bool ui_repeater_get_stats(const uint8_t *pub_key) {
+  if (!pub_key) return false;
+  uint8_t extra[1] = { 0 }; // STATS_TYPE_CORE
+  return the_mesh.uiSendBinaryReq(pub_key, kCmdGetStats, extra, 1, 2);
+}
+
 void halt() {
   while (1) ;
 }

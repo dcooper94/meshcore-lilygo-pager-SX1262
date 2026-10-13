@@ -262,6 +262,26 @@ Adjustments in subsequent rounds (still 2026-06-02):
   original subtle focus (changing them broke perceived scroll).
 - Header pager-name recolored from orange to grey (matches DC).
 
+## Repeaters (S3.7)
+
+* Repeaters tile lists all nodes heard with `ADV_TYPE_REPEATER`, sorted
+  strongest RSSI first (falls back to most-recently-heard).
+* **Long-press** a row to open the login popup for that repeater.
+* **Login popup** — password is masked with asterisks while typing and
+  when loaded from NVS. Correct password dismisses the popup and opens
+  the management screen; wrong password shows an inline error. Password
+  is persisted to NVS per-repeater (keyed by first 4 bytes of pub_key)
+  on first successful login, so subsequent logins auto-fill.
+* **Management screen** — populated via two sequential radio requests:
+  - `REQ_TYPE_GET_OWNER_INFO (0x07)` returns firmware version, node name
+    and owner info as newline-separated text; shown in an **Info** section.
+  - `REQ_TYPE_GET_STATUS (0x01)` returns a `RepeaterStats` struct;
+    battery mV, uptime and RX/TX packet counts are shown in a **Stats**
+    section.
+  - Requests are chained (stats fires after info arrives) to avoid tag
+    collision on `ui_pending_req`.
+  - Encoder scrolls through all rows via the management group.
+
 ## TODO (next phases)
 - **S3.6d.2** — SD-persisted encrypted DM store (AES-256-CTR with
   key = `SHA256(efuse_mac || passphrase)`). Files
@@ -271,7 +291,7 @@ Adjustments in subsequent rounds (still 2026-06-02):
 - **S3.5 follow-up** — favourite-first eviction policy when the
   350-contact cap is hit (favourites stay, oldest non-favourite
   gets reused).
-- **S3.7** — map renderer (XYZ raster tiles from microSD, 5 base
+- **S3.8** — map renderer (XYZ raster tiles from microSD, 5 base
   sources: OSM, PDOK for NL, OpenTopoMap, CyclOSM, Stamen Toner).
   See `MAPS.md`. Needs SD bringup (same prereq as d.2).
 - **Misc smaller** — Settings and Map tiles are still placeholder

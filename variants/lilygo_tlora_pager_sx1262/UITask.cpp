@@ -3485,7 +3485,6 @@ enum {
   SET_GPS_TOGGLE, // click = enable / disable GPS (+ duty cycle)
   SET_GPS_INFO,   // live GPS fix/sat readout — informational, click no-ops
   SET_HOME_INFO,  // click = clear home
-  SET_BLUETOOTH,  // click = toggle BLE on/off
   SET_SCREEN_OFF, // click = cycle timeout
   SET_APPEARANCE, // click = toggle dark / light theme
   SET_BRIGHTNESS, // click = cycle backlight Low/Med/Max
@@ -3519,17 +3518,6 @@ static void settings_row_clicked(lv_event_t *e) {
     if (ui_set_home_loc) {
       ui_set_home_loc(0, 0);
       ui_toast("Home cleared");
-    }
-    break;
-  case SET_BLUETOOTH:
-    if (s_self) {
-      if (s_self->isBluetoothEnabled()) {
-        s_self->disableBluetooth();
-        ui_toast("Bluetooth off");
-      } else {
-        s_self->enableBluetooth();
-        ui_toast("Bluetooth on");
-      }
     }
     break;
   case SET_SCREEN_OFF:
@@ -3812,9 +3800,9 @@ static void settings_list_populate() {
   lv_obj_t *gps_row = build_row(buf, SET_GPS_INFO);
   s_settings_gps_lbl = lv_obj_get_child(gps_row, 0);
 
-  bool btOn = s_self && s_self->isBluetoothEnabled();
-  snprintf(buf, sizeof(buf), "Bluetooth: %s  (tap to toggle)", btOn ? "ON" : "OFF");
-  build_row(buf, SET_BLUETOOTH);
+  // BLE is disabled at compile time (POWER_DISABLE_BLE=1, no BLE_PIN_CODE).
+  // Omitting the toggle avoids a row that toasts "Bluetooth on" but does nothing.
+  // To re-enable: set POWER_DISABLE_BLE=0 and define BLE_PIN_CODE in platformio.ini.
 
   double hlat = 0, hlon = 0;
   bool have_home = ui_get_home_loc && ui_get_home_loc(&hlat, &hlon);

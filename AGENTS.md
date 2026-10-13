@@ -91,7 +91,7 @@
 - MINOR: new user-visible feature
 - PATCH: bug fix, docs, or power/performance improvement
 
-Current version: **v1.2.1**
+Current version: **v1.3.0**
 
 ## Build and flash
 
